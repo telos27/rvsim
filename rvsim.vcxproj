@@ -121,6 +121,9 @@
   <ItemGroup>
     <ClCompile Include="rv-emulator.c" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="rv-simulator.pptx" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
