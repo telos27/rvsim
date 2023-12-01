@@ -141,8 +141,7 @@ int mem_interface(BOOL write, unsigned int addr, int size, unsigned int* data)
             break;
         case MEM_HALFWORD:
             // NOTE: no sign extension
-            // TODO: check
-            *data = (int32_t)((int16_t)(mem[addr] | ((unsigned int)mem[addr + 1]) << 8));
+            *data = mem[addr] | ((unsigned int)mem[addr + 1]) << 8 ;
             break;
         case MEM_WORD:
             *data = mem[addr] | ((unsigned int)mem[addr + 1]) << 8 |
