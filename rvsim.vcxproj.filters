@@ -22,4 +22,7 @@
   <ItemGroup>
     <None Include="rv-simulator.pptx" />
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="tasks.txt" />
+  </ItemGroup>
 </Project>
