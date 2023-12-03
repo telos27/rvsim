@@ -10,11 +10,14 @@ Tasks:
 	2.1 write assembler
 3. Verilog CPU that can run Linux
 	3.0 *understand what is needed to support Linux
-	3.1 Verilog CPU
-	3.2 Running Linux on C simulator
+	3.1 Verilog CPU running noMMU Linux with verilator
+	3.2 Running noMMU Linux on C simulator
+	3.3 add MMU and supervisor mode to verilog, run MMU Linux
+	3.4 run MMU Linux on C simulator
 4. Implement CPU on FPGA
 	4.0 *Test dev tool and test FPGA
 	4.1 Modify verilog and synthesize on FPGA, run simple program
 	4.2 Run Linux
 5. Implement CPU as ASIC
 	5.0 Understand tools
+	5.1 Understand process capabilities and limitations
