@@ -1,7 +1,7 @@
 Tasks:
 
 1. Verilog RV32I CPU that execute instructions
-	1.0 *set up gitee
+	1.0 set up gitee
 	1.1 Verilog CPU
 		1.1.1 *write verilog
 	1.2 C simulator
