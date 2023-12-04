@@ -271,12 +271,65 @@ int branch_op(int rs1 , int rs2 , int sub3 , unsigned int imm5 , unsigned int im
     }
 }
 
-// returns next PC
+// JAL opcode: returns next PC
 int jal_op(int rd, unsigned int imm)
 {
     write_reg(rd, pc + 4);
     // NOTE: bit position, add 0 bit , sign extend
     return pc + sign_extend((imm & 0xfffff) | ((imm & 0xff) << 11) | ((imm & 0x100) << 2) | ((imm & 0x7fe00) << 1), 21);
+}
+
+
+// JALR opcode: returns next PC
+int jalr_op(int rd, int rs1, unsigned int imm12)
+{
+    write_reg(rd, pc + 4);
+    // NOTE: sign extend , zero LSB
+    return (read_reg(rs1) + sign_extend(imm12, 12)) & 0xfffffffe;
+}
+
+// AUIPC opcode
+int auipc_op(int rd, unsigned int imm20)
+{
+    write_reg(rd, pc + (imm20 << 12));
+    return 0;
+}
+
+// LUI opcode
+int lui_op(int rd, unsigned int imm20)
+{
+    write_reg(rd, imm20 << 12);
+    return 0;
+}
+
+// print total cycles and exit
+void halt_cpu()
+{
+    printf("total_cycles = %d", no_cycles);
+    exit(0);
+}
+
+// system call
+// use x5: 1 halt 10 print all registers 11 print string (ptr in x6) 12 print integer (value in x6) 
+void ecall_op()
+{
+    int call_no = read_reg(5);
+
+    switch (call_no) {
+    case 1: halt_cpu(); break;
+    case 10:
+        printf("0x%x ", pc);
+        for (int i = 1; i < 32; i++) {
+            printf("0x%x ", read_reg(i));
+        }
+        printf("\n");
+        break;
+    case 11: printf("%s", (char*)(read_reg(6))); break;
+    case 12:printf("0x%x", read_reg(6)); break;
+    default: assert(0);     // unsupported system call
+    }
+
+
 }
 
 
@@ -303,35 +356,6 @@ int load_code(char *file_name)
     return TRUE;
 }
 
-// print total cycles and exit
-void halt_cpu()
-{
-    printf("total_cycles = %d", no_cycles) ;
-    exit(0);
-}
-
-// system call
-// use x5: 1 halt 10 print all registers 11 print string (ptr in x6) 12 print integer (value in x6) 
-void ecall_op()
-{
-    int call_no = read_reg(5);
-
-    switch (call_no) {
-    case 1: halt_cpu(); break;
-    case 10: 
-        printf("0x%x ", pc);
-        for (int i = 1; i < 32; i++) {
-            printf("0x%x ", read_reg(i));
-        }
-        printf("\n");
-        break;
-    case 11: printf("%s", (char *)(read_reg(6))); break;
-    case 12:printf("0x%x", read_reg(6)); break;
-        default: assert(0);     // unsupported system call
-    }
-    
-
-}
 
 int execute_code()
 {
@@ -370,9 +394,9 @@ int execute_code()
                 break;
             case OP_BEQ: next_pc = branch_op(rs1 , rs2 , sub3 , imm5 , imm7) ; break ;
             case OP_JAL: next_pc = jal_op(rd, imm20); break;    
-            case OP_JALR: assert(0);  break;    // TBD
-            case OP_AUIPC: assert(0);  break;    // TBD
-            case OP_LUI: assert(0);  break;    // TBD
+            case OP_JALR: jalr_op(rd , rs1 ,  imm12);  break;   
+            case OP_AUIPC: auipc_op(rd , imm20);  break;    // TBD
+            case OP_LUI: lui_op(rd , imm20) ;  break;    // TBD
             case OP_ECALL: ecall_op() ; break ;
             default: assert(0);  // unsupported opcode
         }
