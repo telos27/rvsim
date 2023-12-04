@@ -29,7 +29,7 @@ make
 
 ## 许可
 
-本项目采用 [GNU v3 许可证](LICENSE)。
+本项目采用 [GNU v3 许可证]([LICENSE](https://github.com/telos27/rvsim/blob/master/LICENSE.txt)https://github.com/telos27/rvsim/blob/master/LICENSE.txt)。
 
 ---
 
