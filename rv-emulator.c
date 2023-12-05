@@ -277,7 +277,7 @@ int jal_op(int rd, unsigned int imm)
 {
     write_reg(rd, pc + 4);
     // NOTE: bit position, add 0 bit , sign extend
-    return pc + sign_extend((imm & 0xfffff) | ((imm & 0xff) << 11) | ((imm & 0x100) << 2) | ((imm & 0x7fe00) << 1), 21);
+    return pc + sign_extend(((imm & 0x80000) | ((imm & 0xff) << 11) | ((imm & 0x100) << 2) | ((imm & 0x7fe00) >> 9))<<1, 21);
 }
 
 
