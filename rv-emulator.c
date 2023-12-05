@@ -1,6 +1,7 @@
 ﻿#include <stdio.h>
 #include <stdint.h>
 #include <assert.h>
+#include <stdlib.h> //for exit()
 
 // initial instruction address upon startup
 #define INITIAL_PC 0
