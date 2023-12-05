@@ -15,9 +15,18 @@ RVSim 是一个从零开始搭建的 RISCV 模拟器，完全用 C 语言编写�
 1. 克隆仓库：
 git clone https://github.com/telos27/rvsim.git
 2. 编译项目：
-cd rvsim
-make
+
+gcc rv-emulator.c -o rv-emulator
+
 3. 运行模拟器：
+./rv-emulator
+
+## 文件说明
+主文件 rv-emulator.c
+汇编文件 t1.asm
+二进制编码 asm.o
+ppt文件 RISCV模拟器.pptx
+
 
 ## 贡献
 
@@ -29,7 +38,7 @@ make
 
 ## 许可
 
-本项目采用 [GNU v3 许可证](LICENSE)。
+本项目采用 [GNU v3 许可证](LICENSE.txt)。
 
 ---
 
