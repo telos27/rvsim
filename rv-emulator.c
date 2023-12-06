@@ -130,7 +130,7 @@ int mem_interface(BOOL write, unsigned int addr, int size, unsigned int* data)
             mem[addr + 2] = ((*data) & 0xff0000) >> 16;
             mem[addr + 3] = ((*data) & 0xff000000) >> 24;
             break;
-        default: assert(0); // TBD or error
+        default: assert(0); // error
         }
 
     }
@@ -149,7 +149,7 @@ int mem_interface(BOOL write, unsigned int addr, int size, unsigned int* data)
                 ((unsigned int)mem[addr + 2]) << 16 | ((unsigned int)mem[addr + 3]) << 24;
             break;
         default:
-            assert(0); // TBD or error
+            assert(0); // error
         }
 
     }
@@ -180,10 +180,12 @@ int rw_memory(BOOL write , unsigned int addr , int sub3 , unsigned int *data)
                 *data = (int32_t) ((int16_t)read_data)  ;
                 break;
             case MEM_WORD: 
+            case MEM_UBYTE:
+            case MEM_UHALFWORD:
                 *data = read_data ;
                 break ;
             default: 
-                assert(0); // TBD or error
+                assert(0); // error
         }
         return result;
 
@@ -205,37 +207,67 @@ int reg_op(int rd , int rs1 , int rs2 , int sub3 , int sub7)
             assert(0);  // nonexistent sub7
         }
         break;
-    case ALU_XOR: write_reg(rd ,  read_reg(rs1) ^ read_reg(rs2)); break;
-    case ALU_OR: write_reg(rd, read_reg(rs1) | read_reg(rs2)); break;
+    case ALU_XOR: 
+        write_reg(rd ,  read_reg(rs1) ^ read_reg(rs2)); 
+        break;
+    case ALU_OR: 
+        write_reg(rd, read_reg(rs1) | read_reg(rs2)); 
+        break;
     case ALU_AND:
         write_reg(rd , read_reg(rs1) & read_reg(rs2)) ; 
         break;
     case ALU_SLL:
-        write_reg(rd , read_reg(rs1) << read_reg(rs2)); break;
+        write_reg(rd , read_reg(rs1) << read_reg(rs2)); 
+        break;
     case ALU_SRL:
-        if (sub7 ==0x0) {
+        if (sub7 ==NORMAL) {
             write_reg(rd , read_reg(rs1) >> read_reg(rs2)) ; 
         }
-        else if (sub7 == 0x20) {
+        else if (sub7 == SRA) {
             // signed right shift
             write_reg(rd , ((uint32_t)read_reg(rs1)) >> read_reg(rs2)) ;
         }
+        else {
+            assert(0);  // nonexistent sub7
+        }
         break;
     case ALU_SLT:
-        write_reg(rd , (read_reg(rs1) < read_reg(rs2))?1:0) ;
+        write_reg(rd , ((int32_t)read_reg(rs1) < (int32_t) read_reg(rs2))?1:0) ;
         break;
-        default: assert(0); // TBD or error
+    case ALU_SLTU:
+        write_reg(rd, (read_reg(rs1) < read_reg(rs2)) ? 1 : 0);
+        default: assert(0); // error
     }
     return TRUE;
 }
 
-int imm_op(int rd , int rs1 , int sub3 , int imm)
+// NOTE: imm is already sign-extended
+int imm_op(int rd , int rs1 , int sub3 , int sub7 , unsigned int imm)
 {
     switch (sub3) {
-        case ALU_ADD: write_reg(rd ,  read_reg(rs1) + imm) ; break;
-        case ALU_OR: write_reg(rd ,  read_reg(rs1) | imm) ; break;
-        case ALU_AND: write_reg(rd , read_reg(rs1) & imm) ; break;
-        default: assert(0); // TBD or error
+    case ALU_ADD: write_reg(rd, read_reg(rs1) + (int32_t) imm); break;
+    case ALU_XOR: write_reg(rd, read_reg(rs1) ^ imm); break;
+    case ALU_OR: write_reg(rd, read_reg(rs1) | imm); break;
+    case ALU_AND: write_reg(rd, read_reg(rs1) & imm); break;
+    case ALU_SLL: write_reg(rd, read_reg(rs1) << imm); break;
+    case ALU_SRL:
+        if (sub7 == NORMAL) {
+            write_reg(rd, read_reg(rs1) >> imm);
+        }
+        else if (sub7 == SRA) {
+            // signed right shift
+            write_reg(rd, ((uint32_t)read_reg(rs1)) >> imm);
+        }
+        else {
+            assert(0);  // nonexistent sub7
+        }
+        break;
+    case ALU_SLT:
+        write_reg(rd, ((int32_t)read_reg(rs1) < (int32_t)imm) ? 1 : 0);
+        break;
+    case ALU_SLTU:
+        write_reg(rd, (read_reg(rs1) < imm) ? 1 : 0);
+    default: assert(0); // error
     }
     return TRUE;
 }
@@ -256,9 +288,11 @@ int branch_op(int rs1 , int rs2 , int sub3 , unsigned int imm5 , unsigned int im
     switch (sub3) {
     case BRANCH_EQ: do_branch = read_reg(rs1) == read_reg(rs2); break ;
     case BRANCH_NE: do_branch = read_reg(rs1) != read_reg(rs2); break;
-    case BRANCH_LT: do_branch = read_reg(rs1) < read_reg(rs2); break ;
-    case BRANCH_GE: do_branch = read_reg(rs1) >= read_reg(rs2); break;
-    default: assert(0); // TBD or error
+    case BRANCH_LT: do_branch = (int32_t)read_reg(rs1) < (int32_t) read_reg(rs2); break ;
+    case BRANCH_GE: do_branch = (int32_t)read_reg(rs1) >= (int32_t) read_reg(rs2); break;
+    case BRANCH_LTU: do_branch = read_reg(rs1) < read_reg(rs2); break;
+    case BRANCH_GEU: do_branch = read_reg(rs1) >= read_reg(rs2); break;
+    default: assert(0); // error
     }
 
     if (do_branch) {
@@ -366,10 +400,12 @@ int execute_code()
     unsigned int mem_data;
 
     for (;;) {
-        next_pc = -1 ;
+        next_pc = -1 ;  // assume no jump
         no_cycles++ ;
+
         // fetch instruction 
         rw_memory(FALSE , pc , MEM_WORD , &instr) ;
+        
         // decode instruction
         opcode = (instr & OPCODE_MASK)>> OPCODE_SHIFT ;
         sub3 = (instr & FUNCT3_MASK) >> FUNCT3_SHIFT ;
@@ -381,9 +417,10 @@ int execute_code()
         imm7 = (instr & IMM7_MASK) >> IMM7_SHIFT ;
         imm20 = (instr & IMM20_MASK) >> IMM20_SHIFT ;
         rd = (instr & RD_MASK) >> RD_SHIFT ;
+
         switch (opcode) {
             case OP_ADD: reg_op(rd, rs1, rs2, sub3, sub7); break;
-            case OP_ADDI: imm_op(rd, rs1, sub3, sign_extend(imm12, 12)); break;
+            case OP_ADDI: imm_op(rd, rs1, sub3, sub7 , sign_extend(imm12, 12)); break;
                 // NOTE: memory address offset is signed
             case OP_LB: 
                 rw_memory(FALSE , read_reg(rs1)+sign_extend(imm12 , 12) , sub3 , &mem_data) ; 
@@ -401,11 +438,14 @@ int execute_code()
             case OP_ECALL: ecall_op() ; break ;
             default: assert(0);  // unsupported opcode
         }
+
+        // calculate the next PC
         if (next_pc==-1) next_pc = pc + 4 ;
         pc = next_pc ;
     }
 }
 
+// takes one optional argument: machine code file name
 int main(int argc, char** argv)
 {
     load_code((argc<=1)?DEFAULT_FILE:argv[1]);
