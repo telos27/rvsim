@@ -119,6 +119,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="csr.c" />
     <ClCompile Include="rv-emulator.c" />
   </ItemGroup>
   <ItemGroup>
@@ -126,6 +127,9 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="tasks.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="csr.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

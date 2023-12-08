@@ -18,11 +18,19 @@
     <ClCompile Include="rv-emulator.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="csr.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="rv-simulator.pptx" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="tasks.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="csr.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

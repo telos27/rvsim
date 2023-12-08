@@ -3,6 +3,8 @@
 #include <assert.h>
 #include <stdlib.h> //for exit()
 
+#include "csr.h"
+
 // initial instruction address upon startup
 #define INITIAL_PC 0
 
@@ -70,6 +72,16 @@
 #define BRANCH_LTU 0x6
 #define BRANCH_GEU 0x7
 
+// ecall funct3
+#define SYSTEM_ECALL 0x0
+#define SYSTEM_CSRRW 0x1
+#define SYSTEM_CSRRS 0x2
+#define SYSTEM_CSRRC 0x3
+#define SYSTEM_CSRRWI 0x5
+#define SYSTEM_CSRRSI 0x6
+#define SYSTEM_CSRRCI 0x7
+
+
 // usable memory size: 16M
 #define MEMSIZE 16*1024*1024  
 
@@ -85,6 +97,10 @@
 
 // external memory
 static uint8_t mem[MEMSIZE];   // main memory
+
+// MEMIO range: currently CLINT & UART
+#define MEMIO_START 0x10000000
+#define MEMIO_END 0x12000000    // exclusive
 
 
 // internal state
@@ -165,11 +181,22 @@ int rw_memory(BOOL write , unsigned int addr , int sub3 , unsigned int *data)
 
     assert(sub3==MEM_BYTE || sub3==MEM_HALFWORD || sub3==MEM_WORD) ;
     if (write==TRUE) {
-        return mem_interface(write, addr, sub3, data);
+        // TODO: memory I/O
+        if (addr >= MEMIO_START && addr < MEMIO_END) {
+            return io_write(addr, data);
+        }
+        else {
+            return mem_interface(write, addr, sub3, data);
+        }
     } else {
         uint32_t read_data;
-        int result = mem_interface(write, addr, sub3, &read_data);
-
+        int result;
+        if (addr >= MEMIO_START && addr < MEMIO_END) {
+            result = io_read(addr, &read_data) ;  // TODO: what do we do about non-word-sized I/O？
+        }
+        else {
+            result = mem_interface(write, addr, sub3, &read_data);
+        }
         switch (sub3) {
             case MEM_BYTE: 
                 // NOTE: sign extension
@@ -344,27 +371,76 @@ void halt_cpu()
     exit(0);
 }
 
-// system call
-// use x5: 1 halt 10 print all registers 11 print string (ptr in x6) 12 print integer (value in x6) 
-void ecall_op()
+// CSR & ecall/ebreak
+// ecall use x5: 1 halt 10 print all registers 11 print string (ptr in x6) 12 print integer (value in x6) 
+void ecall_op(int sub3 , uint32_t rs1 , uint32_t rd , uint32_t imm12)
 {
-    int call_no = read_reg(5);
+    switch (sub3) {
+    case SYSTEM_ECALL: {
+        int call_no = read_reg(5);
 
-    switch (call_no) {
-    case 1: halt_cpu(); break;
-    case 10:
-        printf("0x%x ", pc);
-        for (int i = 1; i < 32; i++) {
-            printf("0x%x ", read_reg(i));
+        switch (call_no) {
+        case 1: halt_cpu(); break;
+        case 10:
+            printf("0x%x ", pc);
+            for (int i = 1; i < 32; i++) {
+                printf("0x%x ", read_reg(i));
+            }
+            printf("\n");
+            break;
+        case 11: printf("%s", (char*)(read_reg(6))); break;
+        case 12:printf("0x%x", read_reg(6)); break;
+        default: assert(0);     // unsupported system call
+            break;
         }
-        printf("\n");
-        break;
-    case 11: printf("%s", (char*)(read_reg(6))); break;
-    case 12:printf("0x%x", read_reg(6)); break;
-    default: assert(0);     // unsupported system call
     }
-
-
+    // atomic read CSR into rd and write CSR from rs1
+    case SYSTEM_CSRRW: {
+        // if x0, do not read CSR, but still write CSR
+        if (rd != 0) {
+            write_reg(rd, read_CSR(imm12));
+        }
+        write_CSR(imm12, read_reg(rs1));
+        break;
+    }
+    case SYSTEM_CSRRS: {
+        uint32_t value = read_CSR(imm12);
+        write_reg(rd, value);
+        if (rd != 0) {
+            write_CSR(imm12, value | read_reg(rs1));    // TODO: unsettable bits?
+        }
+    }
+    case SYSTEM_CSRRC: {
+        uint32_t value = read_CSR(imm12);
+            write_reg(rd, value);
+        if (rd != 0) {
+            write_CSR(imm12, value & ~read_reg(rs1));    // TODO: unsettable bits?
+        }
+    }
+    case SYSTEM_CSRRWI: {
+        // if x0, do not read CSR, but still write CSR
+        if (rd != 0) {
+            write_reg(rd, read_CSR(imm12));
+        }
+        write_CSR(imm12, rs1);  // rs1 is imm5
+        break;
+    }
+    case SYSTEM_CSRRSI: {
+        uint32_t value = read_CSR(imm12);
+            write_reg(rd, value);
+        if (rd != 0) {
+            write_CSR(imm12, value | rs1);    // TODO: unsettable bits?
+        }
+    }
+    case SYSTEM_CSRRCI: {
+        uint32_t value = read_CSR(imm12);
+            write_reg(rd, value);
+        if (rd != 0) {
+            write_CSR(imm12, value & ~rs1);    // TODO: unsettable bits?
+        }
+    }
+    default: assert(0);
+    }
 }
 
 
@@ -403,6 +479,8 @@ int execute_code()
         next_pc = -1 ;  // assume no jump
         no_cycles++ ;
 
+        // TODO: run_clint() ;
+
         // fetch instruction 
         rw_memory(FALSE , pc , MEM_WORD , &instr) ;
         
@@ -435,10 +513,20 @@ int execute_code()
             case OP_JALR: jalr_op(rd , rs1 ,  imm12);  break;   
             case OP_AUIPC: auipc_op(rd , imm20);  break;    // TBD
             case OP_LUI: lui_op(rd , imm20) ;  break;    // TBD
-            case OP_ECALL: ecall_op() ; break ;
+            case OP_ECALL: ecall_op(sub3 , rs1 , rd , imm12) ; break ;
             default: assert(0);  // unsupported opcode
         }
-
+        /*
+        // TODO: handle interrupt
+        if (interrupt) {
+            // update CSRs;
+            write_CSR(CSR_MCAUSE , read_CSR(CSR_MCAUSE)&mstatus.MIE) ;
+            write_CSR(CSR_MSTATUS , clear MIE bit) ;
+            mstatus.MPP = prev privilege mode
+            write_CSR(CSR
+            next_pc = isr_vector();
+        }
+        */
         // calculate the next PC
         if (next_pc==-1) next_pc = pc + 4 ;
         pc = next_pc ;
