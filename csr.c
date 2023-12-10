@@ -1,34 +1,16 @@
-// csr.c: CSR-related handling
+﻿// csr.c: CSR-related handling
 #include <stdint.h>
+#include <windows.h>
+#include <stdio.h>
 
 #include "csr.h"
 
-// machine-mode CSR, only defined the ones we currently use
-#define CSR_MSTATUS 0x300
-#define CSR_MISA 0x301
-#define CSR_MIE 0x304
-#define CSR_MTVEC 0x305
-#define CSR_MSCRATCH 0x340
-#define CSR_MEPC 0x341
-#define CSR_MCAUSE 0x342
-#define CSR_MTVAL 0x343
-#define CSR_MIP 0x344
-#define CSR_MTINST 0x34A
-#define CSR_MTVAL2 0x34B
-
-
-// MEMIO addresses
-// on real systems these would be actual devices
-#define IO_CLINT_TIMERL 0x1100bff8
-#define IO_CLINT_TIMERH 0x1100bffc
-#define IO_CLINT_TIMERMATCHL 0x11004000
-#define IO_CLINT_TIMERMATCHH 0x11004004
-#define IO_UART_DATA 0x10000000
-#define IO_UART_READY 0x10000005
-
+#define NO_CSRS 4096
 
 // explicit init function?
-static uint32_t CSRs[4096];
+static uint32_t CSRs[NO_CSRS];
+
+// visible through memory I/O
 static uint32_t timer_l = 0;	// part of CLINT, mtime in SiFive doc
 static uint32_t timer_h = 0;
 static uint32_t timer_match_l = 0;	// part of CLINT mtimecmp in SiFive doc
@@ -53,8 +35,8 @@ uint32_t io_read(uint32_t addr, uint32_t *data)
 	case IO_CLINT_TIMERH: *data = timer_h; break;
 	case IO_CLINT_TIMERMATCHL: *data = timer_match_l; break;
 	case IO_CLINT_TIMERMATCHH: *data = timer_match_h; break;
-	case IO_UART_DATA: // TODO: read one byte if there is key hit break ;
-	case IO_UART_READY: // TODO: is key data available break ;
+	case IO_UART_DATA: *data = IsKBHit() ? ReadKBByte() : 0; break;
+	case IO_UART_READY: *data = IsKBHit(); break;
 	default: break;
 	}
 	return 0;
@@ -67,16 +49,111 @@ uint32_t io_write(uint32_t addr, uint32_t* data)
 	case IO_CLINT_TIMERH: timer_h = *data; break;
 	case IO_CLINT_TIMERMATCHL: timer_match_l = *data ; break;
 	case IO_CLINT_TIMERMATCHH: timer_match_h = *data; break;
-	case IO_UART_DATA: // TODO: write data to screen break ;
+	case IO_UART_DATA: printf("%c", *data); fflush(stdout);break ;
+	case IO_DEBUG: debug_syscall();
 	default: break;
 	}
 	return 0;
 }
 
 
+
+static uint64_t get_microseconds()
+{
+	static LARGE_INTEGER lpf;
+	LARGE_INTEGER li;
+
+	if (!lpf.QuadPart)
+		QueryPerformanceFrequency(&lpf);
+
+	QueryPerformanceCounter(&li);
+	return ((uint64_t)li.QuadPart * 1000000LL) / (uint64_t)lpf.QuadPart;
+}
+
+
+static int IsKBHit()
+{
+	return _kbhit();
+}
+
+static int ReadKBByte()
+{
+	// This code is kind of tricky, but used to convert windows arrow keys
+	// to VT100 arrow keys.
+	static int is_escape_sequence = 0;
+	int r;
+	if (is_escape_sequence == 1)
+	{
+		is_escape_sequence++;
+		return '[';
+	}
+
+	r = _getch();
+
+	if (is_escape_sequence)
+	{
+		is_escape_sequence = 0;
+		switch (r)
+		{
+		case 'H': return 'A'; // Up
+		case 'P': return 'B'; // Down
+		case 'K': return 'D'; // Left
+		case 'M': return 'C'; // Right
+		case 'G': return 'H'; // Home
+		case 'O': return 'F'; // End
+		default: return r; // Unknown code.
+		}
+	}
+	else
+	{
+		switch (r)
+		{
+		case 13: return 10; //cr->lf
+		case 224: is_escape_sequence = 1; return 27; // Escape arrow keys
+		default: return r;
+		}
+	}
+}
+
 // CLINT: check to see if we should generate a timer interrupt
 // increment timer and also see if we've exceeded threshold
-void run_clint()
+uint32_t run_clint()
 {
+	uint32_t interrupt = 0;
 
+	static uint64_t last_time = 0;
+	uint64_t elapsed_time = 0;
+
+	if (last_time == 0) {
+		// initialize last_time
+		last_time = get_microseconds();
+		return interrupt;
+	} else {
+		// calculate current time and update timer
+		elapsed_time = get_microseconds() - last_time;
+		uint32_t timel = timer_l + elapsed_time;
+		if (timel < timer_l) timer_h++;
+	}
+
+
+	// compare timer and generate interrupt
+	// clear WFI & set MIP   or clear MIP
+	uint32_t mip = read_CSR(CSR_MIP);
+	if ((timer_match_h > 0 || timer_match_l > 0) && ((timer_h > timer_match_h) ||
+		(timer_h == timer_match_h && timer_l > timer_match_l))) {
+		// TODO: clear WFI
+		write_CSR(CSR_MIP, mip | 0x80);	// set MIP.MTIP	
+	} else {
+		write_CSR(CSR_MIP, mip & 0xffffff7f);	// TODO: make sure that we do need to clear this bit, looks correct
+	}
+
+	uint32_t mstatus = read_CSR(CSR_MSTATUS);
+	mip = read_CSR(CSR_MIP);
+	uint32_t mie = read_CSR(CSR_MIE);
+	// MIP.MTIP , MIE.MTIE , MSTATUS.MIE
+	if ((mip&0x80) && (mie&0x80) && (mstatus & 0x8)) {
+		interrupt = 0x80000007;
+	}
+	return interrupt;
 }
+
