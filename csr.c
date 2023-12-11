@@ -19,9 +19,16 @@ static uint32_t timer_match_l = 0;	// part of CLINT mtimecmp in SiFive doc
 static uint32_t timer_match_h = 0;	
 
 
+extern uint32_t no_readkbhit;
+
 uint32_t read_CSR(uint32_t CSR_no)
 {
-	return CSRs[CSR_no];
+	if (CSR_no == CSR_MISA)
+		return 0x40401101;
+	else if (CSR_no == CSR_MVENDORID)
+		return 0xff0fff0f;
+	else 
+		return CSRs[CSR_no];
 }
 
 uint32_t write_CSR(uint32_t CSR_no, uint32_t value)
@@ -38,7 +45,7 @@ uint32_t io_read(uint32_t addr, uint32_t *data)
 	case IO_CLINT_TIMERMATCHL: *data = timer_match_l; break;
 	case IO_CLINT_TIMERMATCHH: *data = timer_match_h; break;
 	case IO_UART_DATA: *data = IsKBHit() ? ReadKBByte() : 0; break;
-	case IO_UART_READY: *data = IsKBHit(); break;
+	case IO_UART_READY: *data = 0x60|IsKBHit(); break;
 	default: break;
 	}
 	return 0;
@@ -75,6 +82,8 @@ static uint64_t get_microseconds()
 
 static int IsKBHit()
 {
+	no_readkbhit++;
+
 	return _kbhit();
 }
 

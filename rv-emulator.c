@@ -158,6 +158,7 @@ static unsigned int no_cycles; // execution cycles; currently always 1 cycle/ins
 static unsigned int interrupt;  // interrupt type
 static uint32_t dtb_ptr;    // offset to DTB
 
+uint32_t no_readkbhit = 0;
 
 // read register
 // can optimize by always 0 in x0
@@ -182,7 +183,7 @@ int mem_interface(BOOL write, unsigned int addr, int size, unsigned int* data)
 {
     assert(addr >= INITIAL_PC);
     addr -= INITIAL_PC;
-    assert(size == MEM_BYTE || size == MEM_HALFWORD || size == MEM_WORD);
+    assert(size == MEM_BYTE || size == MEM_HALFWORD || size == MEM_WORD || size==MEM_UBYTE || size==MEM_UHALFWORD);
     if (write == TRUE) {
         switch (size) {
         case MEM_BYTE:
@@ -204,11 +205,11 @@ int mem_interface(BOOL write, unsigned int addr, int size, unsigned int* data)
     }
     else {
         switch (size) {
-        case MEM_BYTE:
+        case MEM_BYTE: case MEM_UBYTE:
             // NOTE: no sign extension
             *data = mem[addr];
             break;
-        case MEM_HALFWORD:
+        case MEM_HALFWORD: case MEM_UHALFWORD:
             // NOTE: no sign extension
             *data = mem[addr] | ((unsigned int)mem[addr + 1]) << 8 ;
             break;
@@ -217,7 +218,7 @@ int mem_interface(BOOL write, unsigned int addr, int size, unsigned int* data)
                 ((unsigned int)mem[addr + 2]) << 16 | ((unsigned int)mem[addr + 3]) << 24;
             break;
         default:
-            assert(0); // error
+            interrupt =2 ; // unsupported size
         }
 
     }
@@ -231,7 +232,7 @@ int mem_interface(BOOL write, unsigned int addr, int size, unsigned int* data)
 int rw_memory(BOOL write , unsigned int addr , int sub3 , unsigned int *data)
 {
 
-    assert(sub3==MEM_BYTE || sub3==MEM_HALFWORD || sub3==MEM_WORD) ;
+    assert(sub3==MEM_BYTE || sub3==MEM_HALFWORD || sub3==MEM_WORD || sub3==MEM_UBYTE || sub3==MEM_UHALFWORD) ;
     if (write==TRUE) {
         // TODO: memory I/O
         if (addr >= MEMIO_START && addr < MEMIO_END) {
@@ -297,15 +298,15 @@ int reg_op(int rd , int rs1 , int rs2 , int sub3 , int sub7)
             write_reg(rd, read_reg(rs1) & read_reg(rs2));
             break;
         case ALU_SLL:
-            write_reg(rd, read_reg(rs1) << read_reg(rs2));
+            write_reg(rd, read_reg(rs1) << (read_reg(rs2) & 0x1f));
             break;
         case ALU_SRL:
             if (sub7 == NORMAL) {
-                write_reg(rd, read_reg(rs1) >> read_reg(rs2));
+                write_reg(rd, read_reg(rs1) >> (read_reg(rs2) & 0x1f));
             }
             else if (sub7 == SRA) {
                 // signed right shift
-                write_reg(rd, ((uint32_t)read_reg(rs1)) >> read_reg(rs2));
+                write_reg(rd, ((int32_t)read_reg(rs1)) >> (read_reg(rs2) & 0x1f));
             }
             else {
                 interrupt = 2;  // nonexistent sub7
@@ -316,7 +317,8 @@ int reg_op(int rd , int rs1 , int rs2 , int sub3 , int sub7)
             break;
         case ALU_SLTU:
             write_reg(rd, (read_reg(rs1) < read_reg(rs2)) ? 1 : 0);
-        default: assert(0); // error
+            break ;
+        default: interrupt = 2 ; // unknown sub3
         }
     } else { // MULDIV
         uint32_t n1 = read_reg(rs1);
@@ -334,7 +336,7 @@ int reg_op(int rd , int rs1 , int rs2 , int sub3 , int sub7)
             result = ((((int32_t)n1) == INT_MIN) && (((int32_t)n2) == -1)) ? n1 : 
                 ((uint32_t)(int32_t)n1) % ((int32_t)n2); break;
         case REMU: result = (n2 == 0) ? n1 : (n1 % n2); break;
-        default: assert(0);
+        default: interrupt = 2; break;  // unknown sub3
         }
         write_reg(rd, result);
     }
@@ -349,14 +351,14 @@ int imm_op(int rd , int rs1 , int sub3 , int sub7 , unsigned int imm)
     case ALU_XOR: write_reg(rd, read_reg(rs1) ^ imm); break;
     case ALU_OR: write_reg(rd, read_reg(rs1) | imm); break;
     case ALU_AND: write_reg(rd, read_reg(rs1) & imm); break;
-    case ALU_SLL: write_reg(rd, read_reg(rs1) << imm); break;
+    case ALU_SLL: write_reg(rd, read_reg(rs1) << (imm & 0x1f)); break;
     case ALU_SRL:
         if (sub7 == NORMAL) {
-            write_reg(rd, read_reg(rs1) >> imm);
+            write_reg(rd, read_reg(rs1) >> (imm & 0x1f));
         }
         else if (sub7 == SRA) {
             // signed right shift
-            write_reg(rd, ((uint32_t)read_reg(rs1)) >> imm);
+            write_reg(rd, ((int32_t)read_reg(rs1)) >> (imm & 0x1f));
         }
         else {
             interrupt = 2; // nonexistent sub7
@@ -367,6 +369,7 @@ int imm_op(int rd , int rs1 , int sub3 , int sub7 , unsigned int imm)
         break;
     case ALU_SLTU:
         write_reg(rd, (read_reg(rs1) < imm) ? 1 : 0);
+        break;
     default: interrupt = 2; // nonexistent sub3
     }
     return TRUE;
@@ -400,7 +403,10 @@ int branch_op(int rs1 , int rs2 , int sub3 , unsigned int imm5 , unsigned int im
         unsigned int unsigned_offset = ((imm7 & 0x40) << 6) | ((imm5 & 0x1) << 11) |
             ((imm7 & 0x3f) << 5) | (imm5 & 0x1e) ;  
         int offset = sign_extend(unsigned_offset , 13);
-        return pc+offset ;
+        int ret =  pc+offset ;
+    //    printf("B: pc=%x , sub3=%x , rs1=%x , rs2=%x , imm5=%x , imm7=%x , offset=%x , ret=%x\n", pc , sub3, rs1, rs2, imm5,
+     //       imm7, offset, ret);
+        return ret;
     } else {
         return -1 ;
     }
@@ -411,16 +417,22 @@ int jal_op(int rd, unsigned int imm)
 {
     write_reg(rd, pc + 4);
     // NOTE: bit position, add 0 bit , sign extend
-    return pc + sign_extend(((imm & 0x80000) | ((imm & 0xff) << 11) | ((imm & 0x100) << 2) | ((imm & 0x7fe00) >> 9))<<1, 21);
+    unsigned int ret = pc + sign_extend(((imm & 0x80000) | ((imm & 0xff) << 11) | ((imm & 0x100) << 2) | ((imm & 0x7fe00) >> 9))<<1, 21);
+   // printf("JAL: pc=%x , rd=%x , imm=%x , next=%x\n", pc , rd, imm, ret);
+    return ret;
 }
 
 
 // JALR opcode: returns next PC
 int jalr_op(int rd, int rs1, unsigned int imm12)
 {
-    write_reg(rd, pc + 4);
+    // NOTE: write register afterwards, rd could be same as rs1
+    uint32_t saved_pc = pc + 4;
     // NOTE: sign extend , zero LSB
-    return (read_reg(rs1) + sign_extend(imm12, 12)) & 0xfffffffe;
+    unsigned int ret =  (read_reg(rs1) + sign_extend(imm12, 12)) & 0xfffffffe;
+    //printf("JALR: pc=%x , rd=%x , rs1=%x , imm12=%x , next=%x\n", pc , rd, rs1, imm12 ,  ret);
+    write_reg(rd, saved_pc);
+    return ret;
 }
 
 // AUIPC opcode
@@ -538,25 +550,25 @@ void atomic_op(int sub7 , int rd , int rs1 , int rs2)
 
     if (!lrsc) {
         addr = read_reg(rs1);
-        rw_memory(READ, addr, MEM_WORD, &data); 
+        rw_memory(READ, addr, MEM_WORD, &data);
         write_reg(rd, data);
     }
 
     switch (sub7 >> 4) {
     case AMO_ADD: 
-        switch (sub7 & 0x3) {
+        switch ((sub7 & 0xc)>>2) {
         case AMO_ADD_ADD: data += read_reg(rs2); break;
         case AMO_ADD_SWAP:data = read_reg(rs2); break;
         case AMO_ADD_LR: reservation = rs1 >> 3; rw_memory(READ, read_reg(rs1), MEM_WORD, &data); write_reg(rd, data); break;
         case AMO_ADD_SC: 
             if (reservation == (rs1 >> 3)) {
                 data = read_reg(rs2);
-                rw_memory(WRITE, read_reg(rs1), MEM_WORD, &data); 
+                rw_memory(WRITE, read_reg(rs1), MEM_WORD, &data);
                 write_reg(rd, 0);
             } else {
                 write_reg(rd, 1);
             } break;
-        default: break ;
+        default: interrupt = 2; break;
         } 
         break ;
     case AMO_XOR: data ^= read_reg(rs2); break;
@@ -566,6 +578,7 @@ void atomic_op(int sub7 , int rd , int rs1 , int rs2)
     case AMO_MAX: data = ((int32_t)data < (int32_t)read_reg(rs2)) ? read_reg(rs2):data;  break;
     case AMO_MINU: data=(data<read_reg(rs2))?data:read_reg(rs2);  break;
     case AMO_MAXU: data=(data<read_reg(rs2))?read_reg(rs2):data; break;
+    default: interrupt = 2; break;
     }
 
     if (!lrsc) {
@@ -580,7 +593,6 @@ int execute_code()
     unsigned int next_pc;
 
 
-
     unsigned int mem_data;
 
 
@@ -588,6 +600,11 @@ int execute_code()
         next_pc = -1;  // assume no jump
         interrupt = 0;
         no_cycles++;
+
+
+        if ((no_cycles % 100000000) == 0) {
+            // printf("cycle #: %d , pc=0x%x , kbhit=%d\n", no_cycles, pc , no_readkbhit);
+        }
 
         // run clint every 1024 instructions
         if ((no_cycles & 0x3ff) == 0) {
@@ -624,8 +641,8 @@ int execute_code()
         case OP_BEQ: next_pc = branch_op(rs1, rs2, sub3, imm5, imm7); break;
         case OP_JAL: next_pc = jal_op(rd, imm20); break;
         case OP_JALR: next_pc = jalr_op(rd, rs1, imm12);  break;
-        case OP_AUIPC: auipc_op(rd, imm20);  break;    // TBD
-        case OP_LUI: lui_op(rd, imm20);  break;    // TBD
+        case OP_AUIPC: auipc_op(rd, imm20);  break;   
+        case OP_LUI: lui_op(rd, imm20);  break;    
         case OP_ECALL: next_pc = ecall_op(sub3, sub7, rs1, rd, imm12); break;
         case OP_FENCEI: break; // TODO: don't need to anything until we have cache or pipeline
         case OP_A: atomic_op(sub7, rd, rs1, rs2); break;
@@ -644,7 +661,7 @@ int execute_code()
             mode = MODE_M; // switch to M mode ;
             // jump to interrupt routine
             next_pc = read_CSR(CSR_MTVEC);  // no vectoring support yet
-
+            printf("INTR: pc=%x , interrupt=%x , next=%x\n", pc, interrupt, next_pc);
         }
 
         // calculate the next PC
@@ -736,5 +753,7 @@ int main(int argc, char** argv)
     write_reg(10, 0x0); // hart ID
     write_reg(11, dtb_ptr + INITIAL_PC); // DTB address in memory
     
+    // system("");
+
     execute_code();
 }

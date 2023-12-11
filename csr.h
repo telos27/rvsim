@@ -12,6 +12,7 @@
 #define CSR_MIP 0x344
 #define CSR_MTINST 0x34A
 #define CSR_MTVAL2 0x34B
+#define CSR_MVENDORID 0xf11
 
 
 // MEMIO addresses
