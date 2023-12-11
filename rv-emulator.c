@@ -328,7 +328,7 @@ int reg_op(int rd , int rs1 , int rs2 , int sub3 , int sub7)
         case MULHSU: result = (((int64_t)(int32_t)n1) * ((uint64_t)n2)) >> 32; break;
         case MULHU:result = (((uint64_t)n1) * ((uint64_t)n2)) >> 32; break;
         case DIV: if (n2 == 0) result = -1; else
-            result = ((((int32_t)n1) == INT_MIN) && ((int32_t)n2) == -1) ? n1 : (((int32_t)n1) % (int32_t)n2); break;
+            result = ((((int32_t)n1) == INT_MIN) && ((int32_t)n2) == -1) ? n1 : (((int32_t)n1) / (int32_t)n2); break;
         case DIVU: result = (n2 == 0) ? 0xffffffff : (n1 / n2); break;
         case REM: if (n2 == 0) result = n1; else
             result = ((((int32_t)n1) == INT_MIN) && (((int32_t)n2) == -1)) ? n1 : 
