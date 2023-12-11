@@ -1,0 +1,33 @@
+Detailed RISC-V Interrupt Handling
+
+* M & U modes
+
+
+States:
+* CSRs
+	* mstatus: mpp, mie , mpie
+	* mip
+	* mie
+	* mcause
+	* mepc
+	* mtvec
+	* mtval
+* memory-mapped I/O registers
+	* mtime (64bit)
+	* mtimecmp (64bit)
+	* msip
+* internal state?
+	* mode
+
+
+CPU per-cycle processing:
+* caused by instruction: ebreak/ecall, illegal instructionse etc.
+* timer
+* software interrupt
+* external interrupt
+
+
+mret instruction:
+* set mode to mstatus.mpp
+* mstatus: mie = mpie ; mpie=1 ; mpp = m
+* jump to mepc 
