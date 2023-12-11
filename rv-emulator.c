@@ -452,7 +452,7 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
     case SYSTEM_ECALL: {    // ecall , ebreak , mret
         switch (sub7) {
         case ECALL_ECALL: {
-            interrupt = 2;
+            interrupt = 11;
             break;
         }
         case ECALL_EBREAK: {

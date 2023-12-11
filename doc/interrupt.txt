@@ -60,8 +60,9 @@ after executing each instruction, check to see if there is an interrupt to be ha
 		mepc = PC
 		set mcause, mtval
 		mode = M 
+		jump to mtvec (no vectoring yet)
 
 mret instruction:
 * set mode to mstatus.mpp
-* mstatus: mie = mpie ; mpie=1 ; mpp = m (should be u when we support u mode)
+* mstatus: mie = mpie ; mpie=1 (spec) ; mpp = m (should be u when we support u mode)
 * jump to mepc 

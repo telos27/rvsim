@@ -1,6 +1,8 @@
 ﻿// csr.c: CSR-related handling
 #include <stdint.h>
 #include <windows.h>
+#include <conio.h>
+
 #include <stdio.h>
 
 #include "csr.h"
@@ -116,6 +118,7 @@ static int ReadKBByte()
 }
 
 // CLINT: check to see if we should generate a timer interrupt
+// return value: timer interrupt, 0 if no interrupt
 // increment timer and also see if we've exceeded threshold
 uint32_t run_clint()
 {
