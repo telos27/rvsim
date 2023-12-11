@@ -628,7 +628,7 @@ int execute_code()
         default: interrupt = 2; break;  // invalid opcode
         }
 
-        // TODO: handle interrupt; how often?
+        // NOTE: mie already checked when generating interrupt
         if (interrupt) {
             // update CSRs:
             // mcause: what type of interrupt
@@ -638,7 +638,7 @@ int execute_code()
             write_CSR(CSR_MTVAL, (interrupt & 0x8000000) ? 0 : pc);   // TODO: can provide diff info for certain types of interrupts 
             write_CSR(CSR_MEPC, pc);    // save PC
             mode = MODE_M; // switch to M mode ;
-            // just to interrupt routine
+            // jump to interrupt routine
             next_pc = read_CSR(CSR_MTVEC);  // no vectoring support yet
 
         }

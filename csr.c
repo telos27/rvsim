@@ -150,6 +150,7 @@ uint32_t run_clint()
 	uint32_t mstatus = read_CSR(CSR_MSTATUS);
 	mip = read_CSR(CSR_MIP);
 	uint32_t mie = read_CSR(CSR_MIE);
+	// generate interrupt only if it's enabled
 	// MIP.MTIP , MIE.MTIE , MSTATUS.MIE
 	if ((mip&0x80) && (mie&0x80) && (mstatus & 0x8)) {
 		interrupt = 0x80000007;
