@@ -99,10 +99,10 @@
 #define SYSTEM_CSRRSI 0x6
 #define SYSTEM_CSRRCI 0x7
 
-// SYSTEM_ECALL funct7
+// SYSTEM_ECALL imm12
 #define ECALL_ECALL 0x0
 #define ECALL_EBREAK 0x1
-#define ECALL_MRET 0x2
+#define ECALL_MRET 0x302
 #define ECALL_WFI 0x105
 
 // AMO funct7[6:4]
@@ -450,7 +450,7 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
 {
     switch (sub3) {
     case SYSTEM_ECALL: {    // ecall , ebreak , mret
-        switch (sub7) {
+        switch (imm12) {    // NOTE: use entire 12-bit to distinguish among the different instructions
         case ECALL_ECALL: {
             interrupt = 11;
             break;
@@ -461,8 +461,7 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
         }
         case ECALL_MRET: {
             uint32_t mstatus = read_CSR(CSR_MSTATUS);
-            mode = mstatus & 0x1800;  //MPP ;
-            // TODO: make sure this is correct ; is mpp correct?
+            mode = (mstatus & 0x1800)>>11 ;  //MPP ;
             // mie = mpie ; mpie=1 ; mpp = m-mode
             write_CSR(CSR_MSTATUS, (mode << 11) | 0x80 | ((mstatus & 0x80) >> 4));
             return read_CSR(CSR_MEPC);   // TODO: do we need to -4?
@@ -473,7 +472,8 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
         }
         default: break;
         }
-    }
+        break;
+    }      
     // atomic read CSR into rd and write CSR from rs1
     case SYSTEM_CSRRW: {
         // if x0, do not read CSR, but still write CSR
@@ -489,6 +489,7 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
         if (rd != 0) {
             write_CSR(imm12, value | read_reg(rs1));    // TODO: unsettable bits?
         }
+        break;
     }
     case SYSTEM_CSRRC: {
         uint32_t value = read_CSR(imm12);
@@ -496,6 +497,7 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
         if (rd != 0) {
             write_CSR(imm12, value & ~read_reg(rs1));    // TODO: unsettable bits?
         }
+        break;
     }
     case SYSTEM_CSRRWI: {
         // if x0, do not read CSR, but still write CSR
@@ -511,6 +513,7 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
         if (rd != 0) {
             write_CSR(imm12, value | rs1);    // TODO: unsettable bits?
         }
+        break;
     }
     case SYSTEM_CSRRCI: {
         uint32_t value = read_CSR(imm12);
@@ -518,6 +521,7 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
         if (rd != 0) {
             write_CSR(imm12, value & ~rs1);    // TODO: unsettable bits?
         }
+        break;
     }
     default: interrupt = 2 ;    // undefined sub3
     }
@@ -636,7 +640,7 @@ int execute_code()
             // mstatus: copy MIE to MPIE, clear MIE, copy current mode into MPP
             write_CSR(CSR_MSTATUS, ((read_CSR(CSR_MSTATUS) & 0x8) << 7) | ((mode & 0x3) << 11));
             write_CSR(CSR_MTVAL, (interrupt & 0x8000000) ? 0 : pc);   // TODO: can provide diff info for certain types of interrupts 
-            write_CSR(CSR_MEPC, pc);    // save PC
+            write_CSR(CSR_MEPC, (interrupt&0x80000000)?(pc+4):pc);    // save current instruction's PC TODO: make sure it is correct 
             mode = MODE_M; // switch to M mode ;
             // jump to interrupt routine
             next_pc = read_CSR(CSR_MTVEC);  // no vectoring support yet
