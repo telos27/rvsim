@@ -11,17 +11,11 @@ Tasks:
 3. Verilog CPU that can run Linux
 	3.1 Verilog CPU running noMMU Linux with verilator
 	3.2 Running noMMU Linux on C simulator
-		* add needed functionality in simulator
-			3.2.1 additional instructions
-			3.2.2 interrupt handling
-			3.2.3 memory-mapped I/O
-			3.2.4 CSR
-			3.2.5 CLINT
-			3.2.6 UART
-			3.2.7 SYSCON
-			3.2.8 M-mode (covered by interrupt & CSR?)
-	3.3 add MMU and supervisor mode to verilog, run MMU Linux
-	3.4 run MMU Linux on C simulator
+		3.2.1 * go through interrupt logic
+		3.21. * TEST
+	3.3 add MMU and run xv6 on simulator?
+	3.4 add MMU and supervisor mode to verilog, run MMU Linux
+	3.5 run MMU Linux on C simulator
 4. Implement CPU on FPGA
 	4.0 *Test dev tool and test FPGA
 	4.1 Modify verilog and synthesize on FPGA, run simple program
