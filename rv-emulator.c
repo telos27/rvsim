@@ -623,7 +623,7 @@ int execute_code()
             break;
         case OP_BEQ: next_pc = branch_op(rs1, rs2, sub3, imm5, imm7); break;
         case OP_JAL: next_pc = jal_op(rd, imm20); break;
-        case OP_JALR: jalr_op(rd, rs1, imm12);  break;
+        case OP_JALR: next_pc = jalr_op(rd, rs1, imm12);  break;
         case OP_AUIPC: auipc_op(rd, imm20);  break;    // TBD
         case OP_LUI: lui_op(rd, imm20);  break;    // TBD
         case OP_ECALL: next_pc = ecall_op(sub3, sub7, rs1, rd, imm12); break;
