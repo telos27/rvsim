@@ -481,7 +481,7 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
             // mie = mpie ; mpie=1 ; mpp = m-mode
             write_CSR(CSR_MSTATUS, (mode << 11) | 0x80 | ((mstatus & 0x80) >> 4));
             uint32_t next_pc = read_CSR(CSR_MEPC);   // TODO: do we need to -4?
-            //printf("MRET: pc=0x%x, cycles=0x%x , next_pc=0x%x\n", pc, no_cycles , next_pc);
+            printf("MRET: pc=0x%x, cycles=0x%x , next_pc=0x%x\n", pc, no_cycles , next_pc);
             // trace = 1;
             return next_pc;
         }
@@ -681,8 +681,7 @@ int execute_code()
             mode = MODE_M; // switch to M mode ;
             // jump to interrupt routine
             next_pc = read_CSR(CSR_MTVEC);  // no vectoring support yet
-            //printf("INTR: pc=%x , interrupt=%x , next=%x\n", pc, interrupt, next_pc);
-            continue;
+            printf("INTR: pc=%x , interrupt=%x , next=%x\n", pc, interrupt, next_pc);
         }
 
         // calculate the next PC
