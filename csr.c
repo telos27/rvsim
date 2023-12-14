@@ -18,7 +18,6 @@ static uint32_t timer_h = 0;
 static uint32_t timer_match_l = 0;	// part of CLINT mtimecmp in SiFive doc
 static uint32_t timer_match_h = 0;	
 
-
 extern uint32_t no_readkbhit;
 
 uint32_t read_CSR(uint32_t CSR_no)
@@ -27,13 +26,26 @@ uint32_t read_CSR(uint32_t CSR_no)
 		return 0x40401101;
 	else if (CSR_no == CSR_MVENDORID)
 		return 0xff0fff0f;
-	else 
+	else if (CSR_no == CSR_CYCLE)
+		return no_cycles;
+	else if (CSR_no & 0xc00) {
+		printf("read_CSR: 0x%x\n", CSR_no);
+	}
 		return CSRs[CSR_no];
 }
 
 uint32_t write_CSR(uint32_t CSR_no, uint32_t value)
 {
 	CSRs[CSR_no] = value;
+/*
+	if (CSR_no == CSR_MIE && (value & 0x80)) {
+		printf("MIE.MTIE=1!\n");
+	}
+
+	if (CSR_no == CSR_MSTATUS && (value & 0x8)) {
+		printf("MSTATUS.MIE=1!\n");
+	}
+*/
 	return 1;
 }
 
@@ -143,8 +155,10 @@ uint32_t run_clint()
 	} else {
 		// calculate current time and update timer
 		elapsed_time = get_microseconds() - last_time;
-		uint32_t timel = timer_l + elapsed_time;
-		if (timel < timer_l) timer_h++;
+		last_time += elapsed_time;
+		uint32_t new_timer = timer_l + elapsed_time;
+		if (new_timer < timer_l) timer_h++;
+		timer_l = new_timer;
 	}
 
 

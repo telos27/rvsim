@@ -12,6 +12,7 @@
 #define CSR_MIP 0x344
 #define CSR_MTINST 0x34A
 #define CSR_MTVAL2 0x34B
+#define CSR_CYCLE 0xc00
 #define CSR_MVENDORID 0xf11
 
 
@@ -26,6 +27,8 @@
 
 // debugging use only, don't use in production code
 #define IO_DEBUG 0x11200000
+
+extern uint32_t no_cycles;
 
 uint32_t read_CSR(uint32_t CSR_no);
 uint32_t write_CSR(uint32_t CSR_no, uint32_t value);
