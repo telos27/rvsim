@@ -54,8 +54,8 @@ uint32_t io_read(uint32_t addr, uint32_t *data)
 	switch (addr) {
 	case IO_CLINT_TIMERL: *data = timer_l; break;
 	case IO_CLINT_TIMERH: *data = timer_h; break;
-	case IO_CLINT_TIMERMATCHL: *data = timer_match_l; break;
-	case IO_CLINT_TIMERMATCHH: *data = timer_match_h; break;
+//	case IO_CLINT_TIMERMATCHL: *data = timer_match_l; break;
+//	case IO_CLINT_TIMERMATCHH: *data = timer_match_h; break;
 	case IO_UART_DATA: *data = IsKBHit() ? ReadKBByte() : 0; break;
 	case IO_UART_READY: *data = 0x60|IsKBHit(); break;
 	default: break;
@@ -66,8 +66,8 @@ uint32_t io_read(uint32_t addr, uint32_t *data)
 uint32_t io_write(uint32_t addr, uint32_t* data)
 {
 	switch (addr) {
-	case IO_CLINT_TIMERL: timer_l = *data; break;
-	case IO_CLINT_TIMERH: timer_h = *data; break;
+//	case IO_CLINT_TIMERL: timer_l = *data; break;
+//	case IO_CLINT_TIMERH: timer_h = *data; break;
 	case IO_CLINT_TIMERMATCHL: timer_match_l = *data ; break;
 	case IO_CLINT_TIMERMATCHH: timer_match_h = *data; break;
 	case IO_UART_DATA: printf("%c", *data); fflush(stdout);break ;
@@ -79,7 +79,7 @@ uint32_t io_write(uint32_t addr, uint32_t* data)
 
 
 
-static uint64_t get_microseconds()
+uint64_t get_microseconds()
 {
 	static LARGE_INTEGER lpf;
 	LARGE_INTEGER li;
@@ -166,8 +166,8 @@ uint32_t run_clint()
 	// clear WFI & set MIP   or clear MIP
 	uint32_t mip = read_CSR(CSR_MIP);
 	if ((timer_match_h > 0 || timer_match_l > 0) && ((timer_h > timer_match_h) ||
-		(timer_h == timer_match_h && timer_l > timer_match_l))) {
-		// TODO: clear WFI
+		(timer_h == timer_match_h && timer_l >= timer_match_l))) {
+		wfi = 0;
 		write_CSR(CSR_MIP, mip | 0x80);	// set MIP.MTIP	
 	} else {
 		write_CSR(CSR_MIP, mip & 0xffffff7f);	// TODO: make sure that we do need to clear this bit, looks correct

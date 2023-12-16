@@ -28,7 +28,7 @@
 // debugging use only, don't use in production code
 #define IO_DEBUG 0x11200000
 
-extern uint32_t no_cycles;
+extern uint32_t no_cycles, wfi;
 
 uint32_t read_CSR(uint32_t CSR_no);
 uint32_t write_CSR(uint32_t CSR_no, uint32_t value);

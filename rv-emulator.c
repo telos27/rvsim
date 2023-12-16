@@ -152,6 +152,7 @@ static REGISTER regs[32];
 static unsigned int pc ;       // 32-bit PC
 static unsigned int mode;      // privilege mode: currently U or M only
 static unsigned int reservation;   // for lr/sc ; 29 bits
+unsigned int wfi = 0;    // WFI flag 
 unsigned int no_cycles; // execution cycles; currently always 1 cycle/instruction
 static unsigned int trace = 0;  // trace every instruction
 
@@ -481,12 +482,13 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
             // mie = mpie ; mpie=1 ; mpp = m-mode
             write_CSR(CSR_MSTATUS, (mode << 11) | 0x80 | ((mstatus & 0x80) >> 4));
             uint32_t next_pc = read_CSR(CSR_MEPC);   // TODO: do we need to -4?
-            printf("MRET: pc=0x%x, cycles=0x%x , next_pc=0x%x\n", pc, no_cycles , next_pc);
+            // printf("MRET: pc=0x%x, cycles=0x%x , next_pc=0x%x\n", pc, no_cycles , next_pc);
             // trace = 1;
             return next_pc;
         }
         case ECALL_WFI: {
-            // TODO: ok for now; implement real wait for interrupt in the future
+            write_CSR(CSR_MSTATUS, read_CSR(CSR_MSTATUS) | 0x8); // MIE
+            wfi = 1;
             break;
         }
         default: interrupt = 2;break;
@@ -626,6 +628,9 @@ int execute_code()
             interrupt = run_clint();
         } 
 
+        // 4 combination of interrupt & wfi
+        if (!interrupt && wfi) continue;
+
         if (!interrupt) {
             // fetch instruction 
             rw_memory(FALSE, pc, MEM_WORD, &instr);
@@ -681,7 +686,7 @@ int execute_code()
             mode = MODE_M; // switch to M mode ;
             // jump to interrupt routine
             next_pc = read_CSR(CSR_MTVEC);  // no vectoring support yet
-            printf("INTR: pc=%x , interrupt=%x , next=%x\n", pc, interrupt, next_pc);
+            printf("[time=0x%usus]INTR: pc=%x , interrupt=%x , next=%x\n", (uint32_t)get_microseconds() , pc, interrupt, next_pc);
         }
 
         // calculate the next PC
