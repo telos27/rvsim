@@ -18,7 +18,7 @@
     <ClCompile Include="rv-emulator.c">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="csr.c">
+    <ClCompile Include="clint.c">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -29,7 +29,7 @@
     <Text Include="tasks.txt" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="csr.h">
+    <ClInclude Include="clint.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

@@ -119,7 +119,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="csr.c" />
+    <ClCompile Include="clint.c" />
     <ClCompile Include="rv-emulator.c" />
   </ItemGroup>
   <ItemGroup>
@@ -129,7 +129,7 @@
     <Text Include="tasks.txt" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="csr.h" />
+    <ClInclude Include="clint.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -1,43 +1,18 @@
-﻿// csr.c: CSR-related handling
+﻿// clint.c: CLINT, UART emulation
 #include <stdint.h>
 #include <windows.h>
 #include <conio.h>
 #include <stdio.h>
 
-#include "csr.h"
+#include "clint.h"
 
-#define NO_CSRS 4096
 
-// explicit init function?
-static uint32_t CSRs[NO_CSRS];
-
-// visible through memory I/O
+// CLINT I/O registers
 static uint32_t timer_l = 0;	// part of CLINT, mtime in SiFive doc
 static uint32_t timer_h = 0;
 static uint32_t timer_match_l = 0;	// part of CLINT, mtimecmp in SiFive doc
 static uint32_t timer_match_h = 0;	
 
-extern uint32_t no_readkbhit;
-
-uint32_t read_CSR(uint32_t CSR_no)
-{
-	if (CSR_no == CSR_MISA)
-		return 0x40401101;
-	else if (CSR_no == CSR_MVENDORID)
-		return 0xff0fff0f;
-	else if (CSR_no == CSR_CYCLE)
-		return no_cycles;
-	else if (CSR_no & 0xc00) {
-		//printf("read_CSR: 0x%x\n", CSR_no);
-	}
-		return CSRs[CSR_no];
-}
-
-uint32_t write_CSR(uint32_t CSR_no, uint32_t value)
-{
-	CSRs[CSR_no] = value;
-	return 1;
-}
 
 uint32_t io_read(uint32_t addr, uint32_t *data)
 {
@@ -131,7 +106,7 @@ if (is_escape_sequence)
 // increment timer and also see if we've exceeded threshold
 uint32_t run_clint()
 {
-	uint32_t interrupt = 0;
+	uint32_t gen_interrupt = 0;
 
 	static uint64_t last_time = 0;
 	uint64_t elapsed_time = 0;
@@ -139,7 +114,7 @@ uint32_t run_clint()
 	if (last_time == 0) {
 		// initialize last_time
 		last_time = get_microseconds();
-		return interrupt;
+		return gen_interrupt;
 	} else {
 		// calculate current time and update timer
 		elapsed_time = get_microseconds() - last_time;
@@ -167,8 +142,8 @@ uint32_t run_clint()
 	// generate interrupt only if it's enabled
 	// MIP.MTIP , MIE.MTIE , MSTATUS.MIE
 	if ((mip&0x80) && (mie&0x80) && (mstatus & 0x8)) {
-		interrupt = 0x80000007;
+		gen_interrupt = 0x80000007;
 	}
-	return interrupt;
+	return gen_interrupt;
 }
 

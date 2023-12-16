@@ -3,7 +3,7 @@
 #include <assert.h>
 #include <stdlib.h> //for exit()
 
-#include "csr.h"
+#include "clint.h"
 
 
 // initial instruction address upon startup
@@ -145,10 +145,11 @@ static uint8_t mem[MEMSIZE];   // main memory
 #define MEMIO_START 0x10000000
 #define MEMIO_END 0x12000000    // exclusive
 
-
+#define NO_CSRS 4096
 
 // CPU internal state
 static REGISTER regs[32];
+static uint32_t CSRs[NO_CSRS];  // explicit init?
 static unsigned int pc ;       // 32-bit PC
 static unsigned int mode;      // privilege mode: currently M only
 static unsigned int reservation;   // address for lr/sc ; top 29 bits
@@ -159,8 +160,6 @@ static unsigned int trace = 0;  // trace every instruction
 
 static unsigned int interrupt;  // interrupt type
 static uint32_t dtb_offset;    // offset to DTB
-
-uint32_t no_readkbhit = 0;
 
 // read register
 // can optimize by always 0 in x0
@@ -176,6 +175,29 @@ int write_reg(int reg_no, REGISTER data)
         }
         return reg_no;  // not used yet
 }
+
+
+uint32_t read_CSR(uint32_t CSR_no)
+{
+    if (CSR_no == CSR_MISA)
+        return 0x40401101;
+    else if (CSR_no == CSR_MVENDORID)
+        return 0xff0fff0f;
+    else if (CSR_no == CSR_CYCLE)
+        return no_cycles;
+    else if (CSR_no & 0xc00) {
+        //printf("read_CSR: 0x%x\n", CSR_no);
+    }
+    return CSRs[CSR_no];
+}
+
+uint32_t write_CSR(uint32_t CSR_no, uint32_t value)
+{
+    CSRs[CSR_no] = value;
+    return 1;
+}
+
+
 
 
 // memory operation, no sign extension done here
@@ -620,10 +642,6 @@ int execute_code()
         interrupt = 0;
         no_cycles++;
 
-        if ((no_cycles % 10000) == 0) {
-            // printf("cycle #: %d , pc=0x%x , kbhit=%d\n", no_cycles, pc , no_readkbhit);
-        }
-
         // run clint every 1024 instructions
         if ((no_cycles & 0x3ff) == 0) {
             interrupt = run_clint();
@@ -765,12 +783,13 @@ void debug_syscall() {
 }
 
 
-// takes one optional argument: machine code file name
+// takes two optional argument: machine code file name & dtb file name
 int main(int argc, char** argv)
 {
     load_code((argc<=1)?DEFAULT_FILE:argv[1]);
     if (argc >= 2) load_dtb(argv[2]) ;
 
+    // initialize CPU state
     pc = INITIAL_PC;
     mode = MODE_M; // Machine-mode.
     no_cycles = 0;
@@ -778,8 +797,6 @@ int main(int argc, char** argv)
     // a10 and a11 needed for Linux
     write_reg(10, 0x0); // hart ID
     write_reg(11, dtb_offset + INITIAL_PC); // DTB address in memory
-    
-    // system("");
-
+ 
     execute_code();
 }
