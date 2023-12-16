@@ -37,3 +37,4 @@ uint32_t io_read(uint32_t addr, uint32_t* data);
 uint32_t io_write(uint32_t addr, uint32_t* data);
 
 uint32_t run_clint();
+uint64_t get_microseconds();

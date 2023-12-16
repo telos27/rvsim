@@ -2,7 +2,6 @@
 #include <stdint.h>
 #include <windows.h>
 #include <conio.h>
-
 #include <stdio.h>
 
 #include "csr.h"
@@ -15,7 +14,7 @@ static uint32_t CSRs[NO_CSRS];
 // visible through memory I/O
 static uint32_t timer_l = 0;	// part of CLINT, mtime in SiFive doc
 static uint32_t timer_h = 0;
-static uint32_t timer_match_l = 0;	// part of CLINT mtimecmp in SiFive doc
+static uint32_t timer_match_l = 0;	// part of CLINT, mtimecmp in SiFive doc
 static uint32_t timer_match_h = 0;	
 
 extern uint32_t no_readkbhit;
@@ -29,7 +28,7 @@ uint32_t read_CSR(uint32_t CSR_no)
 	else if (CSR_no == CSR_CYCLE)
 		return no_cycles;
 	else if (CSR_no & 0xc00) {
-		printf("read_CSR: 0x%x\n", CSR_no);
+		//printf("read_CSR: 0x%x\n", CSR_no);
 	}
 		return CSRs[CSR_no];
 }
@@ -37,15 +36,6 @@ uint32_t read_CSR(uint32_t CSR_no)
 uint32_t write_CSR(uint32_t CSR_no, uint32_t value)
 {
 	CSRs[CSR_no] = value;
-/*
-	if (CSR_no == CSR_MIE && (value & 0x80)) {
-		printf("MIE.MTIE=1!\n");
-	}
-
-	if (CSR_no == CSR_MSTATUS && (value & 0x8)) {
-		printf("MSTATUS.MIE=1!\n");
-	}
-*/
 	return 1;
 }
 
@@ -94,8 +84,6 @@ uint64_t get_microseconds()
 
 static int IsKBHit()
 {
-	no_readkbhit++;
-
 	return _kbhit();
 }
 
@@ -113,7 +101,7 @@ static int ReadKBByte()
 
 	r = _getch();
 
-	if (is_escape_sequence)
+if (is_escape_sequence)
 	{
 		is_escape_sequence = 0;
 		switch (r)
@@ -170,7 +158,7 @@ uint32_t run_clint()
 		wfi = 0;
 		write_CSR(CSR_MIP, mip | 0x80);	// set MIP.MTIP	
 	} else {
-		write_CSR(CSR_MIP, mip & 0xffffff7f);	// TODO: make sure that we do need to clear this bit, looks correct
+		write_CSR(CSR_MIP, mip & 0xffffff7f);	// looks correct
 	}
 
 	uint32_t mstatus = read_CSR(CSR_MSTATUS);

@@ -31,7 +31,7 @@
 #define IMM12_MASK 0xfff00000   // bits [31:20]
 #define IMM12_SHIFT 20
 
-// opcodes: RV32IMAZicsrZifenci, mret, wfi
+// opcodes: RV32IMA_Zicsr_Zifenci, mret, wfi
 #define OP_ADD 0b0110011
 #define OP_ADDI 0b0010011
 #define OP_LB 0b0000011
@@ -150,15 +150,15 @@ static uint8_t mem[MEMSIZE];   // main memory
 // CPU internal state
 static REGISTER regs[32];
 static unsigned int pc ;       // 32-bit PC
-static unsigned int mode;      // privilege mode: currently U or M only
-static unsigned int reservation;   // for lr/sc ; 29 bits
+static unsigned int mode;      // privilege mode: currently M only
+static unsigned int reservation;   // address for lr/sc ; top 29 bits
 unsigned int wfi = 0;    // WFI flag 
 unsigned int no_cycles; // execution cycles; currently always 1 cycle/instruction
 static unsigned int trace = 0;  // trace every instruction
 
 
 static unsigned int interrupt;  // interrupt type
-static uint32_t dtb_ptr;    // offset to DTB
+static uint32_t dtb_offset;    // offset to DTB
 
 uint32_t no_readkbhit = 0;
 
@@ -229,7 +229,7 @@ int mem_interface(BOOL write, unsigned int addr, int size, unsigned int* data)
 
 
 // read/write memory, instruction semantics, which includes sign extension in some cases
-// TODO: handle unsigned R/W 
+// include memory-mapped I/O in specificed address range
 // NOTE: little-endian
 int rw_memory(BOOL write , unsigned int addr , int sub3 , unsigned int *data)
 {
@@ -267,7 +267,7 @@ int rw_memory(BOOL write , unsigned int addr , int sub3 , unsigned int *data)
                 *data = read_data ;
                 break ;
             default: 
-                assert(0); // error
+                interrupt = 2; // error
         }
         return result;
 
@@ -379,7 +379,7 @@ int imm_op(int rd , int rs1 , int sub3 , int sub7 , unsigned int imm)
 }
 
 // return a sign-extended version of a number with no_bits
-int sign_extend(unsigned int n , int no_bits)
+int sign_extend(uint32_t n , int no_bits)
 {
     // TODO: is this portable?
     return (((signed int)n) << (32 - no_bits)) >> (32 - no_bits);
@@ -468,7 +468,7 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
     case SYSTEM_ECALL: {    // ecall , ebreak , mret
         switch (imm12) {    // NOTE: use entire 12-bit to distinguish among the different instructions
         case ECALL_ECALL: {
-            interrupt = 11;
+            interrupt = (mode==MODE_M)?11:8;     // TODO: why 8?
             break;
         }
         case ECALL_EBREAK: {
@@ -478,9 +478,10 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
         }
         case ECALL_MRET: {
             uint32_t mstatus = read_CSR(CSR_MSTATUS);
+            uint32_t prev_mode = mode;
             mode = (mstatus & 0x1800)>>11 ;  //MPP ;
-            // mie = mpie ; mpie=1 ; mpp = m-mode
-            write_CSR(CSR_MSTATUS, (mode << 11) | 0x80 | ((mstatus & 0x80) >> 4));
+            // mie = mpie ; mpie=1 ; mpp = mode
+            write_CSR(CSR_MSTATUS, (prev_mode << 11) | 0x80 | ((mstatus & 0x80) >> 4));
             uint32_t next_pc = read_CSR(CSR_MEPC);   // TODO: do we need to -4?
             // printf("MRET: pc=0x%x, cycles=0x%x , next_pc=0x%x\n", pc, no_cycles , next_pc);
             // trace = 1;
@@ -569,18 +570,17 @@ void atomic_op(int sub7 , int rd , int rs1 , int rs2)
     addr = read_reg(rs1);
     if (!lrsc) {
         rw_memory(READ, addr, MEM_WORD, &data);
-        write_reg(rd, data);
         data2 = read_reg(rs2);
     }
 
     switch (sub7 >> 4) {
     case AMO_ADD: 
         switch ((sub7 & 0xc)>>2) {
-        case AMO_ADD_ADD: data += data2; break;
-        case AMO_ADD_SWAP:data = data2; break;
-        case AMO_ADD_LR: reservation = addr >> 3; rw_memory(READ, addr, MEM_WORD, &data); write_reg(rd, data); break;
+        case AMO_ADD_ADD: data2 += data; break;
+        case AMO_ADD_SWAP:break;
+        case AMO_ADD_LR: reservation = addr>>3; rw_memory(READ, addr, MEM_WORD, &data); write_reg(rd, data); break;
         case AMO_ADD_SC: 
-            if (reservation == (addr >> 3)) {
+            if (reservation == (addr >>3)) {
                 data = read_reg(rs2);
                 rw_memory(WRITE, addr, MEM_WORD, &data);
                 write_reg(rd, 0);
@@ -591,18 +591,19 @@ void atomic_op(int sub7 , int rd , int rs1 , int rs2)
         default: interrupt = 2; break;
         } 
         break ;
-    case AMO_XOR: data ^= data2 ; break;
-    case AMO_AND: data &= data2; break;
-    case AMO_OR: data |= data2; break;
-    case AMO_MIN: data = ((int32_t)data < (int32_t)data2) ? data : data2; break;
-    case AMO_MAX: data = ((int32_t)data < (int32_t)data2) ? data2:data;  break;
-    case AMO_MINU: data=(data<data2)?data:data2;  break;
-    case AMO_MAXU: data=(data<data2)?data2:data; break;
+    case AMO_XOR: data2 ^= data ; break;
+    case AMO_AND: data2 &= data; break;
+    case AMO_OR: data2 |= data; break;
+    case AMO_MIN: data2 = ((int32_t)data < (int32_t)data2) ? data : data2; break;
+    case AMO_MAX: data2 = ((int32_t)data < (int32_t)data2) ? data2:data;  break;
+    case AMO_MINU: data2=(data<data2)?data:data2;  break;
+    case AMO_MAXU: data2=(data<data2)?data2:data; break;
     default: interrupt = 2; break;
     }
 
     if (!lrsc) {
-        rw_memory(WRITE, addr, MEM_WORD, &data);
+        rw_memory(WRITE, addr, MEM_WORD, &data2);
+        write_reg(rd, data);
     }
 }
 
@@ -680,13 +681,13 @@ int execute_code()
             // mcause: what type of interrupt
             write_CSR(CSR_MCAUSE, interrupt);
             // mstatus: copy MIE to MPIE, clear MIE, copy current mode into MPP
-            write_CSR(CSR_MSTATUS, ((read_CSR(CSR_MSTATUS) & 0x8) << 7) | ((mode & 0x3) << 11));
+            write_CSR(CSR_MSTATUS, ((read_CSR(CSR_MSTATUS) & 0x8) << 4) | (mode << 11));
             write_CSR(CSR_MTVAL, (interrupt & 0x8000000) ? 0 : pc);   // TODO: can provide diff info for certain types of interrupts 
             write_CSR(CSR_MEPC, pc);    // save current instruction's PC TODO: make sure it is correct 
             mode = MODE_M; // switch to M mode ;
             // jump to interrupt routine
             next_pc = read_CSR(CSR_MTVEC);  // no vectoring support yet
-            printf("[time=0x%usus]INTR: pc=%x , interrupt=%x , next=%x\n", (uint32_t)get_microseconds() , pc, interrupt, next_pc);
+            //printf("[time=0x%usus]INTR: pc=%x , interrupt=%x , next=%x\n", (uint32_t)get_microseconds() , pc, interrupt, next_pc);
         }
 
         // calculate the next PC
@@ -730,8 +731,8 @@ int load_dtb(char* file_name)
     fseek(f, 0, SEEK_END);
     long dtblen = ftell(f);
     fseek(f, 0, SEEK_SET);
-    dtb_ptr = MEMSIZE - dtblen ;  // do we need to store core structure in memory?
-    if (fread(mem + dtb_ptr, dtblen, 1, f) != 1)
+    dtb_offset = MEMSIZE - dtblen ;  // do we need to store core structure in memory?
+    if (fread(mem + dtb_offset, dtblen, 1, f) != 1)
     {
         fprintf(stderr, "Error: Could not open dtb \"%s\"\n", file_name);
         return -9;
@@ -776,7 +777,7 @@ int main(int argc, char** argv)
 
     // a10 and a11 needed for Linux
     write_reg(10, 0x0); // hart ID
-    write_reg(11, dtb_ptr + INITIAL_PC); // DTB address in memory
+    write_reg(11, dtb_offset + INITIAL_PC); // DTB address in memory
     
     // system("");
 
