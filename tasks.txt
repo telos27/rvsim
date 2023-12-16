@@ -4,15 +4,14 @@ Tasks:
 	1.0 set up gitee
 	1.1 Verilog CPU
 		1.1.1 *write verilog
-	1.2 basic C simulator
-		1.2.1 *upload test suite
+	1.2 basic C simulator: done
 2. Assembler
 	2.1 write assembler
 3. Verilog CPU that can run Linux
 	3.1 Verilog CPU running noMMU Linux with verilator
-	3.2 Running noMMU Linux on C simulator
-		3.2.1 * clean up code
-	3.3 add MMU and run xv6 on simulator?
+	3.2 Running noMMU Linux on C simulator: done
+	3.3 add MMU and run xv6 on simulator
+		* add MMU and supervisor mode support
 	3.4 add MMU and supervisor mode to verilog, run MMU Linux
 	3.5 run MMU Linux on C simulator
 4. Implement CPU on FPGA
