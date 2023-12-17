@@ -3,6 +3,8 @@ Tasks:
 1. Verilog RV32I CPU that execute instructions
 	1.1 Verilog CPU
 		1.1.1 *write verilog
+			1.1.1.1 semi-realistic timing models to plan for instruction execution timing
+			1.1.1.2 test ALU
 	1.2 basic C simulator: done
 2. Assembler
 	2.1 write assembler
