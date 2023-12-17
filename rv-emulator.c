@@ -618,12 +618,61 @@ void atomic_op(int sub7 , int rd , int rs1 , int rs2)
 }
 
 
-int execute_code()
+uint32_t execute_one_instruction()
 {
-    unsigned instr, opcode, sub3, sub7, rs1, rs2, rd, imm12, imm5, imm7, imm20;
-    unsigned int next_pc;
-
+    uint32_t instr , opcode, sub3, sub7, rs1, rs2, rd, imm12, imm5, imm7, imm20;
+    uint32_t next_pc = -1;
     unsigned int mem_data;
+
+    // fetch instruction 
+    rw_memory(FALSE, pc, MEM_WORD, &instr);
+
+    if (trace) {
+        printf("pc=0x%x , cycle=0x%x , instr=0x%x\n", pc, no_cycles, instr);
+    }
+
+    // decode instruction
+    opcode = (instr & OPCODE_MASK) >> OPCODE_SHIFT;
+    sub3 = (instr & FUNCT3_MASK) >> FUNCT3_SHIFT;
+    sub7 = (instr & FUNCT7_MASK) >> FUNCT7_SHIFT;
+    rs1 = (instr & RS1_MASK) >> RS1_SHIFT;
+    rs2 = (instr & RS2_MASK) >> RS2_SHIFT;
+    imm12 = (instr & IMM12_MASK) >> IMM12_SHIFT;
+    imm5 = (instr & IMM5_MASK) >> IMM5_SHIFT;
+    imm7 = (instr & IMM7_MASK) >> IMM7_SHIFT;
+    imm20 = (instr & IMM20_MASK) >> IMM20_SHIFT;
+    rd = (instr & RD_MASK) >> RD_SHIFT;
+
+    switch (opcode) {
+    case OP_ADD: reg_op(rd, rs1, rs2, sub3, sub7); break;
+    case OP_ADDI: imm_op(rd, rs1, sub3, sub7, sign_extend(imm12, 12)); break;
+        // NOTE: memory address offset is signed
+    case OP_LB:
+        rw_memory(FALSE, read_reg(rs1) + sign_extend(imm12, 12), sub3, &mem_data);
+        write_reg(rd, mem_data);
+        break;
+    case OP_SB:
+        mem_data = read_reg(rs2);
+        rw_memory(TRUE, read_reg(rs1) + sign_extend((imm7 << 5) | imm5, 12), sub3, &mem_data);
+        break;
+    case OP_BEQ: next_pc = branch_op(rs1, rs2, sub3, imm5, imm7); break;
+    case OP_JAL: next_pc = jal_op(rd, imm20); break;
+    case OP_JALR: next_pc = jalr_op(rd, rs1, imm12);  break;
+    case OP_AUIPC: auipc_op(rd, imm20);  break;
+    case OP_LUI: lui_op(rd, imm20);  break;
+    case OP_ECALL: next_pc = ecall_op(sub3, sub7, rs1, rd, imm12); break;
+    case OP_FENCEI: break; // TODO: don't need to anything until we have cache or pipeline
+    case OP_A: atomic_op(sub7, rd, rs1, rs2); break;
+    default: interrupt = INT_ILLEGAL_INSTR; break;  // invalid opcode
+    }
+
+    return next_pc;
+}
+
+
+int execute_code()
+{ 
+    unsigned int next_pc;
 
     for (;;) {
         next_pc = -1;  // assume no jump
@@ -638,50 +687,10 @@ int execute_code()
         // 4 combination of interrupt & wfi  
         if (!interrupt) {   // if no interrupt; if there is interrupt, will execute the interrupt-handling code following this if
             if (wfi) {
-                continue;   // loop back to see if there is pending interrupt, specifically skip the pc increment
+                continue ;   // loop back to see if there is pending interrupt, specifically skip the pc increment
             }
             else {
-                // fetch instruction 
-                rw_memory(FALSE, pc, MEM_WORD, &instr);
-
-                if (trace) {
-                    printf("pc=0x%x , cycle=0x%x , instr=0x%x\n", pc, no_cycles, instr);
-                }
-
-                // decode instruction
-                opcode = (instr & OPCODE_MASK) >> OPCODE_SHIFT;
-                sub3 = (instr & FUNCT3_MASK) >> FUNCT3_SHIFT;
-                sub7 = (instr & FUNCT7_MASK) >> FUNCT7_SHIFT;
-                rs1 = (instr & RS1_MASK) >> RS1_SHIFT;
-                rs2 = (instr & RS2_MASK) >> RS2_SHIFT;
-                imm12 = (instr & IMM12_MASK) >> IMM12_SHIFT;
-                imm5 = (instr & IMM5_MASK) >> IMM5_SHIFT;
-                imm7 = (instr & IMM7_MASK) >> IMM7_SHIFT;
-                imm20 = (instr & IMM20_MASK) >> IMM20_SHIFT;
-                rd = (instr & RD_MASK) >> RD_SHIFT;
-
-                switch (opcode) {
-                case OP_ADD: reg_op(rd, rs1, rs2, sub3, sub7); break;
-                case OP_ADDI: imm_op(rd, rs1, sub3, sub7, sign_extend(imm12, 12)); break;
-                    // NOTE: memory address offset is signed
-                case OP_LB:
-                    rw_memory(FALSE, read_reg(rs1) + sign_extend(imm12, 12), sub3, &mem_data);
-                    write_reg(rd, mem_data);
-                    break;
-                case OP_SB:
-                    mem_data = read_reg(rs2);
-                    rw_memory(TRUE, read_reg(rs1) + sign_extend((imm7 << 5) | imm5, 12), sub3, &mem_data);
-                    break;
-                case OP_BEQ: next_pc = branch_op(rs1, rs2, sub3, imm5, imm7); break;
-                case OP_JAL: next_pc = jal_op(rd, imm20); break;
-                case OP_JALR: next_pc = jalr_op(rd, rs1, imm12);  break;
-                case OP_AUIPC: auipc_op(rd, imm20);  break;
-                case OP_LUI: lui_op(rd, imm20);  break;
-                case OP_ECALL: next_pc = ecall_op(sub3, sub7, rs1, rd, imm12); break;
-                case OP_FENCEI: break; // TODO: don't need to anything until we have cache or pipeline
-                case OP_A: atomic_op(sub7, rd, rs1, rs2); break;
-                default: interrupt = INT_ILLEGAL_INSTR; break;  // invalid opcode
-                }
+                next_pc = execute_one_instruction();    // does not change any state except for what is defined in the instruction
             }
         }
         // NOTE: mie already checked when generating interrupt
