@@ -7,7 +7,7 @@
 #include "clint.h"
 
 
-// CLINT I/O registers
+// CLINT I/O register states
 static uint32_t timer_l = 0;	// part of CLINT, mtime in SiFive doc
 static uint32_t timer_h = 0;
 static uint32_t timer_match_l = 0;	// part of CLINT, mtimecmp in SiFive doc
@@ -21,6 +21,7 @@ uint32_t io_read(uint32_t addr, uint32_t *data)
 	case IO_CLINT_TIMERH: *data = timer_h; break;
 //	case IO_CLINT_TIMERMATCHL: *data = timer_match_l; break;
 //	case IO_CLINT_TIMERMATCHH: *data = timer_match_h; break;
+	// emulate UART behavior
 	case IO_UART_DATA: *data = IsKBHit() ? ReadKBByte() : 0; break;
 	case IO_UART_READY: *data = 0x60|IsKBHit(); break;
 	default: break;
@@ -33,17 +34,18 @@ uint32_t io_write(uint32_t addr, uint32_t* data)
 	switch (addr) {
 //	case IO_CLINT_TIMERL: timer_l = *data; break;
 //	case IO_CLINT_TIMERH: timer_h = *data; break;
-	case IO_CLINT_TIMERMATCHL: timer_match_l = *data ; break;
+	case IO_CLINT_TIMERMATCHL: timer_match_l = *data; break;
 	case IO_CLINT_TIMERMATCHH: timer_match_h = *data; break;
-	case IO_UART_DATA: printf("%c", *data); fflush(stdout);break ;
-	case IO_DEBUG: debug_syscall();
+	// emulate UART behavior
+	case IO_UART_DATA: printf("%c", *data); fflush(stdout); break ;
+	case IO_DEBUG: debug_syscall(); break;	// debugging only
 	default: break;
 	}
 	return 0;
 }
 
 
-
+// get current microsecond, Windows-specific, need future porting
 uint64_t get_microseconds()
 {
 	static LARGE_INTEGER lpf;
@@ -57,11 +59,13 @@ uint64_t get_microseconds()
 }
 
 
+// Windows-specific
 static int IsKBHit()
 {
 	return _kbhit();
 }
 
+// Windows-specific
 static int ReadKBByte()
 {
 	// This code is kind of tricky, but used to convert windows arrow keys
@@ -101,6 +105,9 @@ if (is_escape_sequence)
 	}
 }
 
+
+static uint64_t last_time = 0;		// last time when we updated the timer, initialized in init_clint()
+
 // CLINT: check to see if we should generate a timer interrupt
 // return value: timer interrupt, 0 if no interrupt
 // increment timer and also see if we've exceeded threshold
@@ -108,42 +115,41 @@ uint32_t run_clint()
 {
 	uint32_t gen_interrupt = 0;
 
-	static uint64_t last_time = 0;
-	uint64_t elapsed_time = 0;
+	uint64_t elapsed_time;
+	uint32_t new_time;
 
-	if (last_time == 0) {
-		// initialize last_time
-		last_time = get_microseconds();
-		return gen_interrupt;
-	} else {
-		// calculate current time and update timer
-		elapsed_time = get_microseconds() - last_time;
-		last_time += elapsed_time;
-		uint32_t new_timer = timer_l + elapsed_time;
-		if (new_timer < timer_l) timer_h++;
-		timer_l = new_timer;
-	}
+	// update timer based on the current time
+	elapsed_time = get_microseconds() - last_time;	
+	last_time += elapsed_time;
+	new_time = timer_l + elapsed_time;
+	if (new_time < timer_l) timer_h++;	// timer_l overflowed
+	timer_l = new_time;
 
-
-	// compare timer and generate interrupt
-	// clear WFI & set MIP   or clear MIP
+	// compare timer and set interrupt pending info
+	// MIP.MTIP is always updated: clear WFI & set MIP or clear MIP 
 	uint32_t mip = read_CSR(CSR_MIP);
 	if ((timer_match_h > 0 || timer_match_l > 0) && ((timer_h > timer_match_h) ||
-		(timer_h == timer_match_h && timer_l >= timer_match_l))) {
+		(timer_h == timer_match_h && timer_l >= timer_match_l))) {	// timer_match set and current time>=timer_match
 		wfi = 0;
-		write_CSR(CSR_MIP, mip | 0x80);	// set MIP.MTIP	
+		write_CSR(CSR_MIP, mip | CSR_MIP_MTIP);		
 	} else {
-		write_CSR(CSR_MIP, mip & 0xffffff7f);	// looks correct
+		write_CSR(CSR_MIP, mip & ~((uint32_t)CSR_MIP_MTIP));
 	}
 
 	uint32_t mstatus = read_CSR(CSR_MSTATUS);
 	mip = read_CSR(CSR_MIP);
 	uint32_t mie = read_CSR(CSR_MIE);
-	// generate interrupt only if it's enabled
+	// generate interrupt only if all three conditions are met:
 	// MIP.MTIP , MIE.MTIE , MSTATUS.MIE
-	if ((mip&0x80) && (mie&0x80) && (mstatus & 0x8)) {
-		gen_interrupt = 0x80000007;
+	if ((mip & CSR_MIP_MTIP) && (mie & CSR_MIE_MTIE) && (mstatus & CSR_MSTATUS_MIE)) {
+		gen_interrupt = INT_MTIMER;
 	}
+
 	return gen_interrupt;
 }
 
+// initialization routine
+uint32_t init_clint()
+{
+	last_time = get_microseconds();
+}

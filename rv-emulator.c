@@ -45,7 +45,6 @@
 #define OP_FENCEI 0b0001111
 #define OP_A 0b0101111
 
-
 // R/I instruction funct3
 #define ALU_ADD 0x0     // SUB funct7=0x20
 #define ALU_XOR 0x4
@@ -121,7 +120,7 @@
 #define AMO_ADD_LR 0x2
 #define AMO_ADD_SC 0x3
 
-// privilege mode
+// privilege modes
 #define MODE_M 0x3
 #define MODE_U 0x0
 
@@ -155,9 +154,8 @@ static unsigned int mode;      // privilege mode: currently M only
 static unsigned int reservation;   // address for lr/sc ; top 29 bits
 unsigned int wfi = 0;    // WFI flag 
 unsigned int no_cycles; // execution cycles; currently always 1 cycle/instruction
+
 static unsigned int trace = 0;  // trace every instruction
-
-
 static unsigned int interrupt;  // interrupt type
 static uint32_t dtb_offset;    // offset to DTB
 
@@ -196,7 +194,6 @@ uint32_t write_CSR(uint32_t CSR_no, uint32_t value)
     CSRs[CSR_no] = value;
     return 1;
 }
-
 
 
 
@@ -289,14 +286,14 @@ int rw_memory(BOOL write , unsigned int addr , int sub3 , unsigned int *data)
                 *data = read_data ;
                 break ;
             default: 
-                interrupt = 2; // error
+                interrupt = INT_ILLEGAL_INSTR; // undefined sub3
         }
         return result;
 
     }
 }
 
-// TODO: make sure signedness is handled correctly
+// NOTE: shift amount only uses 5-bits
 int reg_op(int rd , int rs1 , int rs2 , int sub3 , int sub7)
 {
     if ((sub7 & 1) != 1) {
@@ -309,7 +306,7 @@ int reg_op(int rd , int rs1 , int rs2 , int sub3 , int sub7)
                 write_reg(rd, read_reg(rs1) - read_reg(rs2));
             }
             else {
-                interrupt = 2;  // nonexistent sub7
+                interrupt = INT_ILLEGAL_INSTR;  // nonexistent sub7
             }
             break;
         case ALU_XOR:
@@ -333,7 +330,7 @@ int reg_op(int rd , int rs1 , int rs2 , int sub3 , int sub7)
                 write_reg(rd, ((int32_t)read_reg(rs1)) >> (read_reg(rs2) & 0x1f));
             }
             else {
-                interrupt = 2;  // nonexistent sub7
+                interrupt = INT_ILLEGAL_INSTR;  // nonexistent sub7
             }
             break;
         case ALU_SLT:
@@ -342,9 +339,10 @@ int reg_op(int rd , int rs1 , int rs2 , int sub3 , int sub7)
         case ALU_SLTU:
             write_reg(rd, (read_reg(rs1) < read_reg(rs2)) ? 1 : 0);
             break ;
-        default: interrupt = 2 ; // unknown sub3
+        default: interrupt = INT_ILLEGAL_INSTR ; // unknown sub3
         }
     } else { // MULDIV
+        // NOTE: signedness, special cases for division/remainder of certain numbers
         uint32_t n1 = read_reg(rs1);
         uint32_t n2 = read_reg(rs2);
         uint32_t result = 0;
@@ -361,14 +359,14 @@ int reg_op(int rd , int rs1 , int rs2 , int sub3 , int sub7)
                 (uint32_t)((int32_t)n1 % (int32_t)n2); 
             break;
         case REMU: result = (n2 == 0) ? n1 : (n1 % n2); break;
-        default: interrupt = 2; break;  // unknown sub3
+        default: interrupt = INT_ILLEGAL_INSTR; break;  // unknown sub3
         }
         write_reg(rd, result);
     }
     return TRUE;
 }
 
-// NOTE: imm is already sign-extended
+// NOTE: imm is already sign-extended; shift amount only uses 5 bits
 int imm_op(int rd , int rs1 , int sub3 , int sub7 , unsigned int imm)
 {
     switch (sub3) {
@@ -408,7 +406,6 @@ int sign_extend(uint32_t n , int no_bits)
 }
 
 // return next PC, -1 if we don't branch
-// TODO: check signedness
 int branch_op(int rs1 , int rs2 , int sub3 , unsigned int imm5 , unsigned int imm7)
 {
     BOOL do_branch = FALSE ;
@@ -475,12 +472,7 @@ int lui_op(int rd, unsigned int imm20)
     return 0;
 }
 
-// print total cycles and exit
-void halt_cpu()
-{
-    printf("total_cycles = %d", no_cycles);
-    exit(0);
-}
+
 
 // CSR, ecall/ebreak, mret, wfi
 // return next_pc ;
@@ -490,34 +482,34 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
     case SYSTEM_ECALL: {    // ecall , ebreak , mret
         switch (imm12) {    // NOTE: use entire 12-bit to distinguish among the different instructions
         case ECALL_ECALL: {
-            interrupt = (mode==MODE_M)?11:8;     // TODO: why 8?
+            interrupt = (mode==MODE_M)?INT_MCALL:INT_UCALL;     // TODO: why 8?
             break;
         }
         case ECALL_EBREAK: {
-            interrupt = 3;
+            interrupt = INT_BREAKPOINT;
             //printf("ebreak: pc=0x%x , cycle=0x%x\n", pc, no_cycles);
             break;
         }
         case ECALL_MRET: {
             uint32_t mstatus = read_CSR(CSR_MSTATUS);
-            uint32_t prev_mode = mode;
-            mode = (mstatus & 0x1800)>>11 ;  //MPP ;
+            uint32_t prev_mode = mode;  // we are swapping mode and mstatus.mpp here
+            mode = (mstatus & CSR_MSTATUS_MPP)>>11 ;  // restore CPU mode from MPP ;
             // mie = mpie ; mpie=1 ; mpp = mode
-            write_CSR(CSR_MSTATUS, (prev_mode << 11) | 0x80 | ((mstatus & 0x80) >> 4));
-            uint32_t next_pc = read_CSR(CSR_MEPC);   // TODO: do we need to -4?
+            write_CSR(CSR_MSTATUS, (prev_mode << 11) | CSR_MSTATUS_MPIE | ((mstatus & CSR_MSTATUS_MPIE) >> 4));
+            uint32_t next_pc = read_CSR(CSR_MEPC);   
             // printf("MRET: pc=0x%x, cycles=0x%x , next_pc=0x%x\n", pc, no_cycles , next_pc);
-            // trace = 1;
             return next_pc;
         }
         case ECALL_WFI: {
-            write_CSR(CSR_MSTATUS, read_CSR(CSR_MSTATUS) | 0x8); // MIE
+            write_CSR(CSR_MSTATUS, read_CSR(CSR_MSTATUS) | CSR_MSTATUS_MIE);
             wfi = 1;
             break;
         }
-        default: interrupt = 2;break;
+        default: interrupt = INT_ILLEGAL_INSTR; break;
         }
         break;
     }      
+    // NOTE: order of register read/write as rd&rs1 can be the same register; special cases when register number is 0
     // atomic read CSR into rd and write CSR from rs1
     case SYSTEM_CSRRW: {
         uint32_t new_value = read_reg(rs1);
@@ -526,7 +518,6 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
             write_reg(rd, read_CSR(imm12));
         }
         write_CSR(imm12, new_value);
-        // printf("csrrw[0x%x] = 0x%x\n", imm12, new_value);
         break;
     }
     case SYSTEM_CSRRS: {
@@ -536,17 +527,15 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
         if (rs1 != 0) {
             write_CSR(imm12, value | new_value);    // TODO: unsettable bits?
         }
-        //printf("csrrs[0x%x] = 0x%x , rd=0x%x\n", imm12, new_value , rd);
         break;
     }
     case SYSTEM_CSRRC: {
         uint32_t new_value = read_reg(rs1);
         uint32_t value = read_CSR(imm12);
-            write_reg(rd, value);
+        write_reg(rd, value);
         if (rs1 != 0) {
             write_CSR(imm12, value & ~new_value);    // TODO: unsettable bits?
         }
-        //printf("csrrc[0x%x] = 0x%x\n", imm12, new_value);
         break;
     }
     case SYSTEM_CSRRWI: {
@@ -555,16 +544,14 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
             write_reg(rd, read_CSR(imm12));
         }
         write_CSR(imm12, rs1);  // rs1 is imm5
-        //printf("csrrwi[0x%x] = 0x%x\n", imm12, rs1);
         break;
     }
     case SYSTEM_CSRRSI: {
         uint32_t value = read_CSR(imm12);
-            write_reg(rd, value);
+        write_reg(rd, value);
         if (rs1 != 0) {
             write_CSR(imm12, value | rs1);    // TODO: unsettable bits?
         }
-        //printf("csrrsi[0x%x] = 0x%x\n", imm12, rs1);
         break;
     }
     case SYSTEM_CSRRCI: {
@@ -573,44 +560,44 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
         if (rs1 != 0) {
             write_CSR(imm12, value & ~rs1);    // TODO: unsettable bits?
         }
-        //printf("csrrci[0x%x] = 0x%x\n", imm12, rs1);
         break;
     }
-    default: interrupt = 2 ;    // undefined sub3
+    default: interrupt = INT_ILLEGAL_INSTR ;    // undefined sub3
     }
-    return -1;
+    return -1;  // only MRET does a jump
 }
 
 
-// TODO: clean code ;
+// atomic memory access instructions
 void atomic_op(int sub7 , int rd , int rs1 , int rs2)
 {
     uint32_t data, data2 ,  addr;
 
     int lrsc = (sub7 & 0x8);    //bit 28 (bit 3 of sub7) covers both instructions ;
 
-    addr = read_reg(rs1);
+    // NOTE: register access order critical as rd&rs1 can be the same register
+    addr = read_reg(rs1);   // memory address
     if (!lrsc) {
-        rw_memory(READ, addr, MEM_WORD, &data);
-        data2 = read_reg(rs2);
+        rw_memory(READ, addr, MEM_WORD, &data);    // one piece of data in memory 
+        data2 = read_reg(rs2);  // the other piece in register
     }
 
     switch (sub7 >> 4) {
     case AMO_ADD: 
         switch ((sub7 & 0xc)>>2) {
         case AMO_ADD_ADD: data2 += data; break;
-        case AMO_ADD_SWAP:break;
+        case AMO_ADD_SWAP: break;
         case AMO_ADD_LR: reservation = addr>>3; rw_memory(READ, addr, MEM_WORD, &data); write_reg(rd, data); break;
         case AMO_ADD_SC: 
-            if (reservation == (addr >>3)) {
+            if (reservation == (addr >>3)) {    // check to see if lr & sc match on address, i.e. reservation still there
                 data = read_reg(rs2);
                 rw_memory(WRITE, addr, MEM_WORD, &data);
                 write_reg(rd, 0);
                 reservation = 0;
             } else {
-                write_reg(rd, 1);
+                write_reg(rd, 1);   // TODO: do we need to reset reservation?
             } break;
-        default: interrupt = 2; break;
+        default: interrupt = INT_ILLEGAL_INSTR; break;
         } 
         break ;
     case AMO_XOR: data2 ^= data ; break;
@@ -620,10 +607,11 @@ void atomic_op(int sub7 , int rd , int rs1 , int rs2)
     case AMO_MAX: data2 = ((int32_t)data < (int32_t)data2) ? data2:data;  break;
     case AMO_MINU: data2=(data<data2)?data:data2;  break;
     case AMO_MAXU: data2=(data<data2)?data2:data; break;
-    default: interrupt = 2; break;
+    default: interrupt = INT_ILLEGAL_INSTR; break;
     }
 
     if (!lrsc) {
+        // after arithmetic operation, update memory and register
         rw_memory(WRITE, addr, MEM_WORD, &data2);
         write_reg(rd, data);
     }
@@ -647,69 +635,68 @@ int execute_code()
             interrupt = run_clint();
         } 
 
-        // 4 combination of interrupt & wfi
-        if (!interrupt && wfi) continue;
-
-        if (!interrupt) {
-            // fetch instruction 
-            rw_memory(FALSE, pc, MEM_WORD, &instr);
-
-            if (trace) {
-                printf("pc=0x%x , cycle=0x%x , instr=0x%x\n", pc, no_cycles, instr);
+        // 4 combination of interrupt & wfi  
+        if (!interrupt) {   // if no interrupt; if there is interrupt, will execute the interrupt-handling code following this if
+            if (wfi) {
+                continue;   // loop back to see if there is pending interrupt, specifically skip the pc increment
             }
+            else {
+                // fetch instruction 
+                rw_memory(FALSE, pc, MEM_WORD, &instr);
 
-            // decode instruction
-            opcode = (instr & OPCODE_MASK) >> OPCODE_SHIFT;
-            sub3 = (instr & FUNCT3_MASK) >> FUNCT3_SHIFT;
-            sub7 = (instr & FUNCT7_MASK) >> FUNCT7_SHIFT;
-            rs1 = (instr & RS1_MASK) >> RS1_SHIFT;
-            rs2 = (instr & RS2_MASK) >> RS2_SHIFT;
-            imm12 = (instr & IMM12_MASK) >> IMM12_SHIFT;
-            imm5 = (instr & IMM5_MASK) >> IMM5_SHIFT;
-            imm7 = (instr & IMM7_MASK) >> IMM7_SHIFT;
-            imm20 = (instr & IMM20_MASK) >> IMM20_SHIFT;
-            rd = (instr & RD_MASK) >> RD_SHIFT;
+                if (trace) {
+                    printf("pc=0x%x , cycle=0x%x , instr=0x%x\n", pc, no_cycles, instr);
+                }
 
-            switch (opcode) {
-            case OP_ADD: reg_op(rd, rs1, rs2, sub3, sub7); break;
-            case OP_ADDI: imm_op(rd, rs1, sub3, sub7, sign_extend(imm12, 12)); break;
-                // NOTE: memory address offset is signed
-            case OP_LB:
-                rw_memory(FALSE, read_reg(rs1) + sign_extend(imm12, 12), sub3, &mem_data);
-                write_reg(rd, mem_data);
-                break;
-            case OP_SB:
-                mem_data = read_reg(rs2);
-                rw_memory(TRUE, read_reg(rs1) + sign_extend((imm7 << 5) | imm5, 12), sub3, &mem_data);
-                break;
-            case OP_BEQ: next_pc = branch_op(rs1, rs2, sub3, imm5, imm7); break;
-            case OP_JAL: next_pc = jal_op(rd, imm20); break;
-            case OP_JALR: next_pc = jalr_op(rd, rs1, imm12);  break;
-            case OP_AUIPC: auipc_op(rd, imm20);  break;
-            case OP_LUI: lui_op(rd, imm20);  break;
-            case OP_ECALL: next_pc = ecall_op(sub3, sub7, rs1, rd, imm12); break;
-            case OP_FENCEI: break; // TODO: don't need to anything until we have cache or pipeline
-            case OP_A: atomic_op(sub7, rd, rs1, rs2); break;
-            default: interrupt = 2; break;  // invalid opcode
+                // decode instruction
+                opcode = (instr & OPCODE_MASK) >> OPCODE_SHIFT;
+                sub3 = (instr & FUNCT3_MASK) >> FUNCT3_SHIFT;
+                sub7 = (instr & FUNCT7_MASK) >> FUNCT7_SHIFT;
+                rs1 = (instr & RS1_MASK) >> RS1_SHIFT;
+                rs2 = (instr & RS2_MASK) >> RS2_SHIFT;
+                imm12 = (instr & IMM12_MASK) >> IMM12_SHIFT;
+                imm5 = (instr & IMM5_MASK) >> IMM5_SHIFT;
+                imm7 = (instr & IMM7_MASK) >> IMM7_SHIFT;
+                imm20 = (instr & IMM20_MASK) >> IMM20_SHIFT;
+                rd = (instr & RD_MASK) >> RD_SHIFT;
+
+                switch (opcode) {
+                case OP_ADD: reg_op(rd, rs1, rs2, sub3, sub7); break;
+                case OP_ADDI: imm_op(rd, rs1, sub3, sub7, sign_extend(imm12, 12)); break;
+                    // NOTE: memory address offset is signed
+                case OP_LB:
+                    rw_memory(FALSE, read_reg(rs1) + sign_extend(imm12, 12), sub3, &mem_data);
+                    write_reg(rd, mem_data);
+                    break;
+                case OP_SB:
+                    mem_data = read_reg(rs2);
+                    rw_memory(TRUE, read_reg(rs1) + sign_extend((imm7 << 5) | imm5, 12), sub3, &mem_data);
+                    break;
+                case OP_BEQ: next_pc = branch_op(rs1, rs2, sub3, imm5, imm7); break;
+                case OP_JAL: next_pc = jal_op(rd, imm20); break;
+                case OP_JALR: next_pc = jalr_op(rd, rs1, imm12);  break;
+                case OP_AUIPC: auipc_op(rd, imm20);  break;
+                case OP_LUI: lui_op(rd, imm20);  break;
+                case OP_ECALL: next_pc = ecall_op(sub3, sub7, rs1, rd, imm12); break;
+                case OP_FENCEI: break; // TODO: don't need to anything until we have cache or pipeline
+                case OP_A: atomic_op(sub7, rd, rs1, rs2); break;
+                default: interrupt = INT_ILLEGAL_INSTR; break;  // invalid opcode
+                }
             }
         }
         // NOTE: mie already checked when generating interrupt
         if (interrupt) {
-            // update CSRs:
-            // mcause: what type of interrupt
             write_CSR(CSR_MCAUSE, interrupt);
             // mstatus: copy MIE to MPIE, clear MIE, copy current mode into MPP
-            write_CSR(CSR_MSTATUS, ((read_CSR(CSR_MSTATUS) & 0x8) << 4) | (mode << 11));
-            write_CSR(CSR_MTVAL, (interrupt & 0x8000000) ? 0 : pc);   // TODO: can provide diff info for certain types of interrupts 
-            write_CSR(CSR_MEPC, pc);    // save current instruction's PC TODO: make sure it is correct 
+            write_CSR(CSR_MSTATUS, ((read_CSR(CSR_MSTATUS) & CSR_MSTATUS_MIE) << 4) | (mode << 11));
+            write_CSR(CSR_MTVAL, (interrupt & 0x80000000) ? 0 : pc);   // TODO: can provide diff info for certain types of interrupts 
+            write_CSR(CSR_MEPC, pc);    // NOTE: interrupt and exception cases are different, but both should save the current pc
             mode = MODE_M; // switch to M mode ;
-            // jump to interrupt routine
-            next_pc = read_CSR(CSR_MTVEC);  // no vectoring support yet
+            next_pc = read_CSR(CSR_MTVEC);  // jump to interrupt routine, no vectoring support yet
             //printf("[time=0x%usus]INTR: pc=%x , interrupt=%x , next=%x\n", (uint32_t)get_microseconds() , pc, interrupt, next_pc);
         }
 
-        // calculate the next PC
-        if (next_pc == -1) next_pc = pc + 4;
+        if (next_pc == -1) next_pc = pc + 4;    // next instruction if there is no jump; only executed for !intetrrupt&&!wfi case
         pc = next_pc;
     }
 }
@@ -760,14 +747,13 @@ int load_dtb(char* file_name)
 }
 
 
-
 // debugging syscall on I/O write: use x5: 1 halt 10 print all registers 11 print string (ptr in x6) 12 print integer (value in x6) 
 void debug_syscall() {
 
     int call_no = read_reg(5);
 
     switch (call_no) {
-    case 1: halt_cpu(); break;
+    case 1: printf("total_cycles = %d", no_cycles); exit(0); break;
     case 10:
         printf("0x%x ", pc);
         for (int i = 1; i < 32; i++) {
@@ -793,6 +779,8 @@ int main(int argc, char** argv)
     pc = INITIAL_PC;
     mode = MODE_M; // Machine-mode.
     no_cycles = 0;
+
+    init_clint();   
 
     // a10 and a11 needed for Linux
     write_reg(10, 0x0); // hart ID
