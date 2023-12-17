@@ -367,3 +367,4 @@ FodyWeavers.xsd
 /sixtyfourmb.dts
 /64mb2000.dtb
 /tests/localbuild.bin
+/mmu.txt
