@@ -1,7 +1,6 @@
 Tasks:
 
 1. Verilog RV32I CPU that execute instructions
-	1.0 set up gitee
 	1.1 Verilog CPU
 		1.1.1 *write verilog
 	1.2 basic C simulator: done
@@ -12,12 +11,23 @@ Tasks:
 	3.2 Running noMMU Linux on C simulator: done
 	3.3 add MMU and run xv6 on simulator
 		* add MMU and supervisor mode support
+			* instructions: sret , uret , fence.vma, ?
+			* S-mode & U-mode?
+			* S-mode£¨incl MMU) & U-mode CSRs, go through all CSRs
+			* MMU algorithms
+			* PMP
+			* mode switching?
+			* TLB? can wait?
+			* virtio?
+			* PLIC?
+		* build xv6 (32-bit)
 	3.4 add MMU and supervisor mode to verilog, run MMU Linux
 	3.5 run MMU Linux on C simulator
 4. Implement CPU on FPGA
 	4.0 *Test dev tool and test FPGA
 	4.1 Modify verilog and synthesize on FPGA, run simple program
 	4.2 Run Linux
-5. Implement CPU as ASIC
+5. PCB: ESP32 + ...
+6. Implement CPU as ASIC
 	5.0 Understand tools
 	5.1 Understand process capabilities and limitations
