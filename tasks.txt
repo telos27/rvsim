@@ -23,6 +23,7 @@ Tasks:
 			* virtio?
 			* PLIC?
 		* build xv6 (32-bit)
+		* why and how is it using U mode in the current version?
 	3.4 add MMU and supervisor mode to verilog, run MMU Linux
 	3.5 run MMU Linux on C simulator
 4. Implement CPU on FPGA
