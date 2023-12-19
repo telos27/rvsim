@@ -13,12 +13,11 @@ Tasks:
 	3.2 Running noMMU Linux on C simulator: done
 	3.3 add MMU and run xv6 on simulator
 		* add MMU and supervisor mode support
-			* instructions: sret , uret , fence.vma, ?
-			* S-mode & U-mode?
-			* S-mode£¨incl MMU) & U-mode CSRs, go through all CSRs
+			* instructions: sret , vfence.vma
+			* S-mode(incl MMU) & U-mode CSRs, go through all CSRs
 			* MMU algorithms
 			* PMP
-			* mode switching
+			* mode switching; interrupt handling in the right places
 			* virtio?
 			* PLIC?
 		* build xv6 (32-bit)
