@@ -120,6 +120,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="clint.c" />
+    <ClCompile Include="mmu.c" />
     <ClCompile Include="rv-emulator.c" />
   </ItemGroup>
   <ItemGroup>

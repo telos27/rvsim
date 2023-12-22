@@ -113,7 +113,7 @@ static uint64_t last_time = 0;		// last time when we updated the timer, initiali
 // increment timer and also see if we've exceeded threshold
 uint32_t run_clint()
 {
-	uint32_t gen_interrupt = 0;
+	uint32_t gen_interrupt = 0xffffffff;
 
 	uint64_t elapsed_time;
 	uint32_t new_time;
@@ -142,7 +142,7 @@ uint32_t run_clint()
 	// generate interrupt only if all three conditions are met:
 	// MIP.MTIP , MIE.MTIE , MSTATUS.MIE
 	if ((mip & CSR_MIP_MTIP) && (mie & CSR_MIE_MTIE) && (mstatus & CSR_MSTATUS_MIE)) {
-		gen_interrupt = INT_MTIMER;
+		gen_interrupt = INTR_MTIMER;
 	}
 
 	return gen_interrupt;

@@ -21,6 +21,9 @@
     <ClCompile Include="clint.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="mmu.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="rv-simulator.pptx" />

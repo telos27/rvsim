@@ -4,6 +4,7 @@
 #include <stdlib.h> //for exit()
 
 #include "clint.h"
+#include "mmu.h"
 
 
 // initial instruction address upon startup
@@ -70,17 +71,6 @@
 #define SUB 0x20
 #define SRA 0x20
 
-// memory operations funct3
-#define MEM_BYTE 0x0
-#define MEM_HALFWORD 0x1
-#define MEM_WORD 0x2
-#define MEM_UBYTE 0x4
-#define MEM_UHALFWORD 0x5
-
-// memory operation
-#define READ 0
-#define WRITE 1
-
 // branch funct3
 #define BRANCH_EQ 0x0
 #define BRANCH_NE 0x1
@@ -120,8 +110,9 @@
 #define AMO_ADD_LR 0x2
 #define AMO_ADD_SC 0x3
 
-// privilege modes
+// privilege levles
 #define MODE_M 0x3
+#define MODE_S 0x1
 #define MODE_U 0x0
 
 
@@ -197,15 +188,16 @@ uint32_t write_CSR(uint32_t CSR_no, uint32_t value)
 
 
 
-// memory operation, no sign extension done here
+// physical address memory operation, no sign extension done here
 // memory address start at INITIAL_PC, no memory storage below that address
 // can improve perf by handling multiple bytes at once
-int mem_interface(BOOL write, unsigned int addr, int size, unsigned int* data)
+int pa_mem_interface(uint32_t mem_mode, unsigned int addr, int size, unsigned int* data)
 {
     assert(addr >= INITIAL_PC);
+    // TODO: PMP & PMA checks 
     addr -= INITIAL_PC;
     assert(size == MEM_BYTE || size == MEM_HALFWORD || size == MEM_WORD || size==MEM_UBYTE || size==MEM_UHALFWORD);
-    if (write == TRUE) {
+    if (mem_mode == MEM_WRITE) {
         switch (size) {
         case MEM_BYTE:
             mem[addr] = (*data) & 0xff;
@@ -220,11 +212,10 @@ int mem_interface(BOOL write, unsigned int addr, int size, unsigned int* data)
             mem[addr + 2] = ((*data) & 0xff0000) >> 16;
             mem[addr + 3] = ((*data) & 0xff000000) >> 24;
             break;
-        default: interrupt=2 ; // unspported size
+        default: interrupt=INT_ILLEGAL_INSTR ; // unspported size
         }
 
-    }
-    else {
+    } else { // both instruction and data read
         switch (size) {
         case MEM_BYTE: case MEM_UBYTE:
             // NOTE: no sign extension
@@ -239,7 +230,7 @@ int mem_interface(BOOL write, unsigned int addr, int size, unsigned int* data)
                 ((unsigned int)mem[addr + 2]) << 16 | ((unsigned int)mem[addr + 3]) << 24;
             break;
         default:
-            interrupt =2 ; // unsupported size
+            interrupt =INT_ILLEGAL_INSTR ; // unsupported size
         }
 
     }
@@ -248,28 +239,33 @@ int mem_interface(BOOL write, unsigned int addr, int size, unsigned int* data)
 
 
 // read/write memory, instruction semantics, which includes sign extension in some cases
-// include memory-mapped I/O in specificed address range
+// include memory-mapped I/O in specificed address range, which goes through MMU as well
 // NOTE: little-endian
-int rw_memory(BOOL write , unsigned int addr , int sub3 , unsigned int *data)
+int rw_memory(uint32_t mem_mode, uint32_t addr, int sub3, unsigned int* data)
 {
+    assert(sub3 == MEM_BYTE || sub3 == MEM_HALFWORD || sub3 == MEM_WORD || sub3 == MEM_UBYTE || sub3 == MEM_UHALFWORD);
+    // address translation here ;
+    uint32_t satp = read_CSR(CSR_SATP);
 
-    assert(sub3==MEM_BYTE || sub3==MEM_HALFWORD || sub3==MEM_WORD || sub3==MEM_UBYTE || sub3==MEM_UHALFWORD) ;
-    if (write==TRUE) {
-        // TODO: memory I/O
+    if (mode!=MODE_M && ((satp & CSR_SATP_MODE) == 1)) {
+        addr = (vpn2ppn(addr>>12 , mem_mode , &interrupt) << 12) | (addr & 0xfff);  // 34 bit pa, currently we only simulate 32-bit
+        if (interrupt!=0xffffffff) return -1;
+    }
+    if (mem_mode==MEM_WRITE) {
         if (addr >= MEMIO_START && addr < MEMIO_END) {
             return io_write(addr, data);
         }
         else {
-            return mem_interface(write, addr, sub3, data);
+            return pa_mem_interface(mem_mode, addr, sub3, data);
         }
-    } else {
+    } else {    // both instruction and data read
         uint32_t read_data;
         int result;
         if (addr >= MEMIO_START && addr < MEMIO_END) {
             result = io_read(addr, &read_data) ;  // TODO: what do we do about non-word-sized I/O？
         }
         else {
-            result = mem_interface(write, addr, sub3, &read_data);
+            result = pa_mem_interface(mem_mode, addr, sub3, &read_data);
         }
         switch (sub3) {
             case MEM_BYTE: 
@@ -384,7 +380,7 @@ int imm_op(int rd , int rs1 , int sub3 , int sub7 , unsigned int imm)
             write_reg(rd, ((int32_t)read_reg(rs1)) >> (imm & 0x1f));
         }
         else {
-            interrupt = 2; // nonexistent sub7
+            interrupt = INT_ILLEGAL_INSTR; // nonexistent sub7
         }
         break;
     case ALU_SLT:
@@ -393,7 +389,7 @@ int imm_op(int rd , int rs1 , int sub3 , int sub7 , unsigned int imm)
     case ALU_SLTU:
         write_reg(rd, (read_reg(rs1) < imm) ? 1 : 0);
         break;
-    default: interrupt = 2; // nonexistent sub3
+    default: interrupt = INT_ILLEGAL_INSTR; // nonexistent sub3
     }
     return TRUE;
 }
@@ -417,7 +413,7 @@ int branch_op(int rs1 , int rs2 , int sub3 , unsigned int imm5 , unsigned int im
     case BRANCH_GE: do_branch = (int32_t)read_reg(rs1) >= (int32_t) read_reg(rs2); break;
     case BRANCH_LTU: do_branch = read_reg(rs1) < read_reg(rs2); break;
     case BRANCH_GEU: do_branch = read_reg(rs1) >= read_reg(rs2); break;
-    default: interrupt = 2; // error
+    default: interrupt = INT_ILLEGAL_INSTR; // error
     }
 
     if (do_branch) {
@@ -474,7 +470,7 @@ int lui_op(int rd, unsigned int imm20)
 
 
 
-// CSR, ecall/ebreak, mret, wfi
+// CSR, ecall/ebreak, mret/sret, wfi
 // return next_pc ;
 uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t imm12)
 {
@@ -482,7 +478,7 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
     case SYSTEM_ECALL: {    // ecall , ebreak , mret
         switch (imm12) {    // NOTE: use entire 12-bit to distinguish among the different instructions
         case ECALL_ECALL: {
-            interrupt = (mode==MODE_M)?INT_MCALL:INT_UCALL;     // TODO: why 8?
+            interrupt = mode+INT_UCALL;   // interrupt number is different for different modes
             break;
         }
         case ECALL_EBREAK: {
@@ -490,15 +486,31 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
             //printf("ebreak: pc=0x%x , cycle=0x%x\n", pc, no_cycles);
             break;
         }
-        case ECALL_MRET: {
-            uint32_t mstatus = read_CSR(CSR_MSTATUS);
-            uint32_t prev_mode = mode;  // we are swapping mode and mstatus.mpp here
-            mode = (mstatus & CSR_MSTATUS_MPP)>>11 ;  // restore CPU mode from MPP ;
-            // mie = mpie ; mpie=1 ; mpp = mode
-            write_CSR(CSR_MSTATUS, (prev_mode << 11) | CSR_MSTATUS_MPIE | ((mstatus & CSR_MSTATUS_MPIE) >> 4));
-            uint32_t next_pc = read_CSR(CSR_MEPC);   
-            // printf("MRET: pc=0x%x, cycles=0x%x , next_pc=0x%x\n", pc, no_cycles , next_pc);
-            return next_pc;
+        case ECALL_MRET: {  // mret & sret
+            if (sub3 == MODE_M) {
+                uint32_t mstatus = read_CSR(CSR_MSTATUS);
+                uint32_t prev_mode = mode;  // we are swapping mode and mstatus.mpp here
+                mode = (mstatus & CSR_MSTATUS_MPP) >> 11;  // restore CPU mode from MPP ;
+                // mie = mpie ; mpie=1 ; mpp = mode
+                write_CSR(CSR_MSTATUS, (prev_mode << 11) | CSR_MSTATUS_MPIE | ((mstatus & CSR_MSTATUS_MPIE) >> 4));
+                uint32_t next_pc = read_CSR(CSR_MEPC);
+                // printf("MRET: pc=0x%x, cycles=0x%x , next_pc=0x%x\n", pc, no_cycles , next_pc);
+                return next_pc;
+            }
+            else if (sub3==MODE_S) { // sret
+                uint32_t sstatus = read_CSR(CSR_SSTATUS);
+                uint32_t prev_mode = mode;  // we are swapping mode and mstatus.mpp here
+                mode = (sstatus & CSR_SSTATUS_SPP) >> 8;  // restore CPU mode from SPP (NOTE: one bit only) ;
+                // mie = mpie ; mpie=1 ; spp = mode[0]
+                write_CSR(CSR_SSTATUS, ((prev_mode&1) << 8) | CSR_SSTATUS_SPIE | ((sstatus & CSR_SSTATUS_SPIE) >> 4));
+                uint32_t next_pc = read_CSR(CSR_SEPC);
+                printf("SRET: pc=0x%x, cycles=0x%x , next_pc=0x%x\n", pc, no_cycles , next_pc);
+                return next_pc;
+            }
+            else {
+                interrupt = INT_ILLEGAL_INSTR;  // unexpected sub3
+            }
+            break;
         }
         case ECALL_WFI: {
             write_CSR(CSR_MSTATUS, read_CSR(CSR_MSTATUS) | CSR_MSTATUS_MIE);
@@ -578,7 +590,7 @@ void atomic_op(int sub7 , int rd , int rs1 , int rs2)
     // NOTE: register access order critical as rd&rs1 can be the same register
     addr = read_reg(rs1);   // memory address
     if (!lrsc) {
-        rw_memory(READ, addr, MEM_WORD, &data);    // one piece of data in memory 
+        rw_memory(MEM_READ, addr, MEM_WORD, &data);    // one piece of data in memory 
         data2 = read_reg(rs2);  // the other piece in register
     }
 
@@ -587,11 +599,11 @@ void atomic_op(int sub7 , int rd , int rs1 , int rs2)
         switch ((sub7 & 0xc)>>2) {
         case AMO_ADD_ADD: data2 += data; break;
         case AMO_ADD_SWAP: break;
-        case AMO_ADD_LR: reservation = addr>>3; rw_memory(READ, addr, MEM_WORD, &data); write_reg(rd, data); break;
+        case AMO_ADD_LR: reservation = addr>>3; rw_memory(MEM_READ, addr, MEM_WORD, &data); write_reg(rd, data); break;
         case AMO_ADD_SC: 
             if (reservation == (addr >>3)) {    // check to see if lr & sc match on address, i.e. reservation still there
                 data = read_reg(rs2);
-                rw_memory(WRITE, addr, MEM_WORD, &data);
+                rw_memory(MEM_WRITE, addr, MEM_WORD, &data);
                 write_reg(rd, 0);
                 reservation = 0;
             } else {
@@ -612,7 +624,7 @@ void atomic_op(int sub7 , int rd , int rs1 , int rs2)
 
     if (!lrsc) {
         // after arithmetic operation, update memory and register
-        rw_memory(WRITE, addr, MEM_WORD, &data2);
+        rw_memory(MEM_WRITE, addr, MEM_WORD, &data2);
         write_reg(rd, data);
     }
 }
@@ -625,11 +637,7 @@ uint32_t execute_one_instruction()
     unsigned int mem_data;
 
     // fetch instruction 
-    rw_memory(FALSE, pc, MEM_WORD, &instr);
-
-    if (trace) {
-        printf("pc=0x%x , cycle=0x%x , instr=0x%x\n", pc, no_cycles, instr);
-    }
+    rw_memory(MEM_INSTR, pc, MEM_WORD, &instr);
 
     // decode instruction
     opcode = (instr & OPCODE_MASK) >> OPCODE_SHIFT;
@@ -648,12 +656,12 @@ uint32_t execute_one_instruction()
     case OP_ADDI: imm_op(rd, rs1, sub3, sub7, sign_extend(imm12, 12)); break;
         // NOTE: memory address offset is signed
     case OP_LB:
-        rw_memory(FALSE, read_reg(rs1) + sign_extend(imm12, 12), sub3, &mem_data);
+        rw_memory(MEM_READ, read_reg(rs1) + sign_extend(imm12, 12), sub3, &mem_data);
         write_reg(rd, mem_data);
         break;
     case OP_SB:
         mem_data = read_reg(rs2);
-        rw_memory(TRUE, read_reg(rs1) + sign_extend((imm7 << 5) | imm5, 12), sub3, &mem_data);
+        rw_memory(MEM_WRITE, read_reg(rs1) + sign_extend((imm7 << 5) | imm5, 12), sub3, &mem_data);
         break;
     case OP_BEQ: next_pc = branch_op(rs1, rs2, sub3, imm5, imm7); break;
     case OP_JAL: next_pc = jal_op(rd, imm20); break;
@@ -670,13 +678,58 @@ uint32_t execute_one_instruction()
 }
 
 
+// return next_pc; -1 if we don't take the interrupt for some reason (currently not possible)
+// possible interrupts: timer + exceptions
+uint32_t execute_interrupt(uint32_t interrupt)
+{
+    uint32_t result = -1;
+
+    uint32_t mstatus = read_CSR(CSR_MSTATUS);
+    uint32_t exception_delegate = read_CSR(CSR_MEDELEG);
+    uint32_t interrupt_delegate = read_CSR(CSR_MIDELEG);
+    int delegated = 0;
+
+    if (interrupt & 0x80000000) {
+        int interrupt_no = interrupt & 0x7fffffff;
+        delegated = (interrupt_no < 32) && (interrupt_delegate & (1 << interrupt_no));
+    }
+    else {
+        delegated = (interrupt < 32) && (exception_delegate & (1 << interrupt));
+    }
+
+    // default is M mode
+    // NOTE: mstatus.mie, mtip, mtie all already checked when interrupt was assigned
+    if (mode!=MODE_M || !delegated) {
+        write_CSR(CSR_MCAUSE, interrupt);
+        // mstatus: copy MIE to MPIE, clear MIE, copy current mode into MPP
+        write_CSR(CSR_MSTATUS, ((read_CSR(CSR_MSTATUS) & CSR_MSTATUS_MIE) << 4) | (mode << 11));
+        write_CSR(CSR_MTVAL, (interrupt & 0x80000000) ? 0 : pc);   // TODO: can provide diff info for certain types of interrupts 
+        write_CSR(CSR_MEPC, pc);    // NOTE: interrupt and exception cases are different, but both should save the current pc
+        mode = MODE_M; // switch to M mode ;
+        result = read_CSR(CSR_MTVEC);  // jump to interrupt routine, no vectoring support yet
+ //       printf("[time=0x%usus]M INTR: pc=%x , interrupt=%x , next=%x\n", (uint32_t)get_microseconds() , pc, interrupt, result);
+    }
+    else {  // trap to S mode
+        write_CSR(CSR_SCAUSE, interrupt);
+        // mstatus: copy SIE to SPIE, clear SIE, copy current mode(one bit) into SPP
+        write_CSR(CSR_SSTATUS, ((read_CSR(CSR_SSTATUS) & CSR_SSTATUS_SIE) << 4) | ((mode & 1) << 8));
+        write_CSR(CSR_STVAL, (interrupt & 0x80000000) ? 0 : pc);   // TODO: can provide diff info for certain types of interrupts 
+        write_CSR(CSR_SEPC, pc);    // NOTE: interrupt and exception cases are different, but both should save the current pc
+        mode = MODE_S; // switch to M mode ;
+        result = read_CSR(CSR_STVEC);  // jump to interrupt routine, no vectoring support yet
+        printf("[time=0x%usus]S INTR: pc=%x , interrupt=%x , next=%x\n", (uint32_t)get_microseconds() , pc, interrupt, result);
+    }
+    return result;
+}
+
+
 int execute_code()
 { 
     unsigned int next_pc;
 
     for (;;) {
         next_pc = -1;  // assume no jump
-        interrupt = 0;
+        interrupt = 0xffffffff;     // NOTE: 0 is valid interrupt
         no_cycles++;
 
         // run clint every 1024 instructions
@@ -685,7 +738,7 @@ int execute_code()
         } 
 
         // 4 combination of interrupt & wfi  
-        if (!interrupt) {   // if no interrupt; if there is interrupt, will execute the interrupt-handling code following this if
+        if (interrupt==0xffffffff) {   // if no interrupt; if there is interrupt, will execute the interrupt-handling code following this if
             if (wfi) {
                 continue ;   // loop back to see if there is pending interrupt, specifically skip the pc increment
             }
@@ -694,17 +747,9 @@ int execute_code()
             }
         }
         // NOTE: mie already checked when generating interrupt
-        if (interrupt) {
-            write_CSR(CSR_MCAUSE, interrupt);
-            // mstatus: copy MIE to MPIE, clear MIE, copy current mode into MPP
-            write_CSR(CSR_MSTATUS, ((read_CSR(CSR_MSTATUS) & CSR_MSTATUS_MIE) << 4) | (mode << 11));
-            write_CSR(CSR_MTVAL, (interrupt & 0x80000000) ? 0 : pc);   // TODO: can provide diff info for certain types of interrupts 
-            write_CSR(CSR_MEPC, pc);    // NOTE: interrupt and exception cases are different, but both should save the current pc
-            mode = MODE_M; // switch to M mode ;
-            next_pc = read_CSR(CSR_MTVEC);  // jump to interrupt routine, no vectoring support yet
-            //printf("[time=0x%usus]INTR: pc=%x , interrupt=%x , next=%x\n", (uint32_t)get_microseconds() , pc, interrupt, next_pc);
+        if (interrupt!=0xffffffff) {
+            next_pc = execute_interrupt(interrupt);
         }
-
         if (next_pc == -1) next_pc = pc + 4;    // next instruction if there is no jump; only executed for !intetrrupt&&!wfi case
         pc = next_pc;
     }
