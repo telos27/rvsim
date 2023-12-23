@@ -94,6 +94,7 @@
 #define ECALL_MRET 0x302
 #define ECALL_SRET 0x102
 #define ECALL_WFI 0x105
+#define ECALL_SFENCEVMA 0x120
 
 // AMO funct7[6:4]
 #define AMO_ADD 0x0
@@ -192,7 +193,7 @@ uint32_t write_CSR(uint32_t CSR_no, uint32_t value)
 // physical address memory operation, no sign extension done here
 // memory address start at INITIAL_PC, no memory storage below that address
 // can improve perf by handling multiple bytes at once
-int pa_mem_interface(uint32_t mem_mode, unsigned int addr, int size, unsigned int* data)
+int pa_mem_interface(uint32_t mem_mode, unsigned int addr, int size, unsigned int* data, uint32_t *interrupt)
 {
     assert(addr >= INITIAL_PC);
     // TODO: PMP & PMA checks 
@@ -213,7 +214,7 @@ int pa_mem_interface(uint32_t mem_mode, unsigned int addr, int size, unsigned in
             mem[addr + 2] = ((*data) & 0xff0000) >> 16;
             mem[addr + 3] = ((*data) & 0xff000000) >> 24;
             break;
-        default: interrupt=INT_ILLEGAL_INSTR ; // unspported size
+        default: *interrupt=INT_ILLEGAL_INSTR ; // unspported size
         }
 
     } else { // both instruction and data read
@@ -231,9 +232,8 @@ int pa_mem_interface(uint32_t mem_mode, unsigned int addr, int size, unsigned in
                 ((unsigned int)mem[addr + 2]) << 16 | ((unsigned int)mem[addr + 3]) << 24;
             break;
         default:
-            interrupt =INT_ILLEGAL_INSTR ; // unsupported size
+            *interrupt = INT_ILLEGAL_INSTR ; // unsupported size
         }
-
     }
     return TRUE;
 }
@@ -242,6 +242,7 @@ int pa_mem_interface(uint32_t mem_mode, unsigned int addr, int size, unsigned in
 // read/write memory, instruction semantics, which includes sign extension in some cases
 // include memory-mapped I/O in specificed address range, which goes through MMU as well
 // NOTE: little-endian
+// TODO: mstatus.mprv
 int rw_memory(uint32_t mem_mode, uint32_t addr, int sub3, unsigned int* data)
 {
     assert(sub3 == MEM_BYTE || sub3 == MEM_HALFWORD || sub3 == MEM_WORD || sub3 == MEM_UBYTE || sub3 == MEM_UHALFWORD);
@@ -257,7 +258,7 @@ int rw_memory(uint32_t mem_mode, uint32_t addr, int sub3, unsigned int* data)
             return io_write(addr, data);
         }
         else {
-            return pa_mem_interface(mem_mode, addr, sub3, data);
+            return pa_mem_interface(mem_mode, addr, sub3, data , &interrupt);
         }
     } else {    // both instruction and data read
         uint32_t read_data;
@@ -266,7 +267,8 @@ int rw_memory(uint32_t mem_mode, uint32_t addr, int sub3, unsigned int* data)
             result = io_read(addr, &read_data) ;  // TODO: what do we do about non-word-sized I/O？
         }
         else {
-            result = pa_mem_interface(mem_mode, addr, sub3, &read_data);
+            result = pa_mem_interface(mem_mode, addr, sub3, &read_data , &interrupt);
+            if (interrupt != 0xffffffff) return -1;
         }
         switch (sub3) {
             case MEM_BYTE: 
@@ -513,6 +515,7 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
             wfi = 1;
             break;
         }
+        case ECALL_SFENCEVMA: break;    // TODO: invalidate TLB etc.
         default: interrupt = INT_ILLEGAL_INSTR; break;
         }
         break;

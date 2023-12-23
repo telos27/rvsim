@@ -29,31 +29,44 @@ uint32_t vpn2ppn(uint32_t vpn , uint32_t mem_access_mode , uint32_t *interrupt)
 	for (int i = 0; i < PTE_LEVELS; i++)
 	{
 		uint32_t pte;
-		// TODO: update correct interrupt
-		pa_mem_interface(MEM_READ, ppn << 12 | vpn_segment[i], MEM_WORD, &pte);	// physical address, no translation
+
+		pa_mem_interface(MEM_READ, ppn << 12 | vpn_segment[i], MEM_WORD, &pte, interrupt);	// physical address, no translation
 		if (*interrupt != 0xffffffff) return 0;
 
 		if ((pte & PTE_V) == 0 || ((pte & PTE_W) && !(pte & PTE_R))) {
-			*interrupt = INT_INSTR_PAGEFAULT + mem_access_mode ;
+			*interrupt = INT_INSTR_PAGEFAULT + mem_access_mode ;	// invalid PTE or RW reserved combination
+			return 0;
 		}
 
-		if (pte & PTE_W || pte & PTE_X) { // leaf pte
-			uint32_t result = pte & PTE_PPN;	// TODO: megapage handling
+		if (pte & PTE_R || pte & PTE_X) { // leaf pte
+			uint32_t result = pte & PTE_PPN;	
 			// check U & SUM & MXR
-			// check megapage alignment
-			// handle A&D update
-			if ((pte & PTE_A) == 0 || (mem_access_mode == MEM_WRITE && ((pte & PTE_D) == 0))) {
+		
+			// check superpage alignment: the last segment of the PPN should all be 0
+			// need to loop for longer VPN
+			if ((i==0) && ((result & VPN_SEG2) != 0)) {
 				*interrupt = INT_INSTR_PAGEFAULT + mem_access_mode;
+				return 0;
+			}
+	
+			if ((pte & PTE_A) == 0 || (mem_access_mode == MEM_WRITE && ((pte & PTE_D) == 0))) {
 				//or ACCESS if pte PMP/PMA
+				*interrupt = INT_INSTR_PAGEFAULT + mem_access_mode;
+				return 0;
 			} else {
-				return result;
+				// TODO: handle A&D update; set A, set D if write; should not update for xv6?
+				// need to loop for longer VPN
+				if (i == 0) {	// superpage: use segment1 from VPN
+					result |= vpn_segment[1];
+				}
+				return result;	
 			}
 		}
 		else {
-			ppn = pte & PTE_PPN ;		// next-level PTE
+			ppn = pte & PTE_PPN ;		// next-level PTE; should be good enough?
 		}
 	}
-	// TODO: how to avoid two addr translations for a single AMO?
+	// TODO: how to avoid two addr translations for a single AMO? should be correct even if we don't do anything? but should optimize
 	*interrupt = mem_access_mode + INT_INSTR_PAGEFAULT;	//no leaf pte
 	return 0;
 }

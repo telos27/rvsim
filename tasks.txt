@@ -12,14 +12,9 @@ Tasks:
 	3.1 Verilog CPU running noMMU Linux with verilator
 	3.2 Running noMMU Linux on C simulator: done
 	3.3 add MMU and run xv6 on simulator
-		* add MMU and supervisor mode support
-			* instructions: sret , vfence.vma
-			* S-mode(incl MMU) & U-mode CSRs, go through all CSRs
-			* MMU algorithms
-			* PMP
-			* mode switching; interrupt handling in the right places
-			* virtio?
-			* PLIC?
+		* devices
+			* virtio
+			* finish PLIC
 		* build xv6 (32-bit)
 	3.4 add MMU and supervisor mode to verilog, run MMU Linux
 	3.5 run MMU Linux on C simulator
