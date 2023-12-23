@@ -92,6 +92,7 @@
 #define ECALL_ECALL 0x0
 #define ECALL_EBREAK 0x1
 #define ECALL_MRET 0x302
+#define ECALL_SRET 0x102
 #define ECALL_WFI 0x105
 
 // AMO funct7[6:4]
@@ -486,19 +487,18 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
             //printf("ebreak: pc=0x%x , cycle=0x%x\n", pc, no_cycles);
             break;
         }
-        case ECALL_MRET: {  // mret & sret
-            if (sub3 == MODE_M) {
-                uint32_t mstatus = read_CSR(CSR_MSTATUS);
-                uint32_t prev_mode = mode;  // we are swapping mode and mstatus.mpp here
-                mode = (mstatus & CSR_MSTATUS_MPP) >> 11;  // restore CPU mode from MPP ;
-                // mie = mpie ; mpie=1 ; mpp = mode
-                write_CSR(CSR_MSTATUS, (prev_mode << 11) | CSR_MSTATUS_MPIE | ((mstatus & CSR_MSTATUS_MPIE) >> 4));
-                uint32_t next_pc = read_CSR(CSR_MEPC);
-                // printf("MRET: pc=0x%x, cycles=0x%x , next_pc=0x%x\n", pc, no_cycles , next_pc);
-                return next_pc;
-            }
-            else if (sub3==MODE_S) { // sret
-                uint32_t sstatus = read_CSR(CSR_SSTATUS);
+        case ECALL_MRET: {  
+            uint32_t mstatus = read_CSR(CSR_MSTATUS);
+                    uint32_t prev_mode = mode;  // we are swapping mode and mstatus.mpp here
+                    mode = (mstatus & CSR_MSTATUS_MPP) >> 11;  // restore CPU mode from MPP ;
+                    // mie = mpie ; mpie=1 ; mpp = mode
+                    write_CSR(CSR_MSTATUS, (prev_mode << 11) | CSR_MSTATUS_MPIE | ((mstatus & CSR_MSTATUS_MPIE) >> 4));
+                    uint32_t next_pc = read_CSR(CSR_MEPC);
+                    // printf("MRET: pc=0x%x, cycles=0x%x , next_pc=0x%x\n", pc, no_cycles , next_pc);
+                    return next_pc;
+                }
+        case ECALL_SRET: {
+            uint32_t sstatus = read_CSR(CSR_SSTATUS);
                 uint32_t prev_mode = mode;  // we are swapping mode and mstatus.mpp here
                 mode = (sstatus & CSR_SSTATUS_SPP) >> 8;  // restore CPU mode from SPP (NOTE: one bit only) ;
                 // mie = mpie ; mpie=1 ; spp = mode[0]
@@ -506,11 +506,7 @@ uint32_t ecall_op(int sub3 , int sub7 , uint32_t rs1 , uint32_t rd , uint32_t im
                 uint32_t next_pc = read_CSR(CSR_SEPC);
                 printf("SRET: pc=0x%x, cycles=0x%x , next_pc=0x%x\n", pc, no_cycles , next_pc);
                 return next_pc;
-            }
-            else {
-                interrupt = INT_ILLEGAL_INSTR;  // unexpected sub3
-            }
-            break;
+            
         }
         case ECALL_WFI: {
             write_CSR(CSR_MSTATUS, read_CSR(CSR_MSTATUS) | CSR_MSTATUS_MIE);
