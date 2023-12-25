@@ -36,7 +36,9 @@
 #define CSR_MSTATUS_MPIE 0x80
 #define CSR_MSTATUS_MPP 0x1800
 #define CSR_MIP_MTIP 0x80
+#define CSR_MIP_MEIP (0x1<<11)
 #define CSR_MIE_MTIE 0x80
+#define CSR_MIE_MEIE (0x1<<11)
 #define CSR_SSTATUS_SIE 0x2
 #define CSR_SSTATUS_SPIE 0x20
 #define CSR_SSTATUS_SPP 0x100
@@ -45,6 +47,7 @@
 
 // interrupt numbers
 #define INTR_MTIMER 0x80000007
+#define INTR_MEXTERNAL 0x8000000b
 #define INT_INSTR_MISALIGN 0x0
 #define INT_INSTR_ACCESS 0x1
 #define INT_ILLEGAL_INSTR 0x2
@@ -85,6 +88,29 @@
 #define PLIC_ENABLE_END 0x0c002090
 #define PLIC_THRESHOLD 0x0c201000
 #define PLIC_CLAIM 0x0c201004
+
+#define VIRTIO_START 0x10001000
+// offsets
+// virtio mmio control registers, mapped starting at 0x10001000.
+// from qemu virtio_mmio.h
+#define VIRTIO_MAGIC_VALUE		0x000 // 0x74726976
+#define VIRTIO_VERSION		0x004 // version; 1 is legacy
+#define VIRTIO_DEVICE_ID		0x008 // device type; 1 is net, 2 is disk
+#define VIRTIO_VENDOR_ID		0x00c // 0x554d4551
+#define VIRTIO_DEVICE_FEATURES	0x010
+#define VIRTIO_DRIVER_FEATURES	0x020
+#define VIRTIO_GUEST_PAGE_SIZE	0x028 // page size for PFN, write-only
+#define VIRTIO_QUEUE_SEL		0x030 // select queue, write-only
+#define VIRTIO_QUEUE_NUM_MAX	0x034 // max size of current queue, read-only
+#define VIRTIO_QUEUE_NUM		0x038 // size of current queue, write-only
+#define VIRTIO_QUEUE_ALIGN		0x03c // used ring alignment, write-only
+#define VIRTIO_QUEUE_PFN		0x040 // physical page number for queue, read/write
+#define VIRTIO_QUEUE_READY		0x044 // ready bit
+#define VIRTIO_QUEUE_NOTIFY	0x050 // write-only
+#define VIRTIO_INTERRUPT_STATUS	0x060 // read-only
+#define VIRTIO_INTERRUPT_ACK	0x064 // write-only
+#define VIRTIO_STATUS		0x070 // read/write
+
 
 // debugging use only, don't use in production code
 #define IO_DEBUG 0x11200000

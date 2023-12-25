@@ -2,8 +2,8 @@
 #include "clint.h"
 
 #define PTE_LEVELS 2
-#define VPN_SEG1 0xffc00
-#define VPN_SEG2 0x3ff
+#define VPN_SEG1 0xffc00	// bits [19:10] of vpn
+#define VPN_SEG2 0x3ff	// bits[9:0]
 #define PTE_V 0x1
 #define PTE_R 0x2
 #define PTE_W 0x4
@@ -16,9 +16,8 @@
 
 typedef uint32_t pte;
 
-
-// TODO: check for a bunch of error conditions
 // translate 20-bit vpn va to 22-bit ppn
+// mem_access_mode: instruction read, data read, data write
 // returns 0 if there is any kind of fault, which is stored in interrupt
 uint32_t vpn2ppn(uint32_t vpn , uint32_t mem_access_mode , uint32_t *interrupt)
 {

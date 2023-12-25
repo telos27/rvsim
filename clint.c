@@ -7,6 +7,8 @@
 
 #include "clint.h"
 
+#include "mmu.h"
+
 
 // CLINT I/O register states
 static uint32_t timer_l = 0;	// part of CLINT, mtime in SiFive doc
@@ -64,8 +66,11 @@ uint32_t plic_write(uint32_t addr, uint32_t* data)
 		plic_threshold = *data;
 	}
 	else if (addr == PLIC_CLAIM) {
-		plic_claim = *data ;
-		// TODO: clear pending
+		// clear corresponding pending bit
+		uint32_t* p = plic_pending[*data >> 5];
+		*p &= ~(1 << (*data & 0x1f));
+
+		plic_claim = 0 ;		// TODO: should be next pending interrupt? current way only works if there is single pending interrupt
 	}
 	else {
 		assert(0);
@@ -76,11 +81,157 @@ uint32_t plic_write(uint32_t addr, uint32_t* data)
 
 uint32_t run_plic()
 {
-	// TODO: cleanup; only set one if both are pending?
-	if (uart_interrupt_pending) plic_pending[0] |= 1 << 10;
-	if (virtio_interrupt_pending) plic_pending[0] |= 1 << 1;
-	// need to adjust claim as well
-	// rvemu seems to assume a single priority pending, ideally it should calculate according to priority and pending
+	// rvemu seems to assume a single priority pending, it should calculate according to priority and pending
+	if (uart_interrupt_pending) {
+		plic_pending[0] |= 1 << 10;
+		plic_claim = 10;
+	}
+	else if (vio_interrupt_pending()) {
+		vio_disk_access();
+		plic_pending[0] |= 1 << 1;
+		plic_claim = 1;
+	}
+	return 0;
+}
+
+
+// virtio implementation here is written to fit with xv6 and legacy mode in qemu?
+// biggest difference with recent virtio spec is single pfn vs. three descriptor addresses
+#define VIO_QUEUE_SIZE 8
+#define SECTOR_SIZE 512
+
+#define VRING_DESC_F_NEXT  1 // chained with another descriptor
+#define VRING_DESC_F_WRITE 2 // device writes (vs read)
+
+static uint32_t vio_page_size;
+static uint32_t vio_queue_num;
+static uint32_t vio_pfn;
+static uint32_t vio_queue_align;
+static uint32_t vio_status;
+static uint32_t vio_queue_notify = UINT32_MAX;
+static uint32_t vio_used_idx;	// matches virtq.used.idx
+static uint8_t* vio_disk;	// disk space, allocated in init
+
+uint32_t init_vio()
+{
+	// empty right now
+	vio_disk = malloc(64 * 1024 * 1024);	// 64M disk
+}
+
+uint32_t vio_read(uint32_t addr, uint32_t* data)
+{
+	uint32_t offset = addr - VIRTIO_START;
+	switch (offset) {
+	case VIRTIO_MAGIC_VALUE: *data = 0x74726976b; break;
+	case VIRTIO_VERSION: *data = 0x1; break;
+	case VIRTIO_DEVICE_ID: *data = 0x2; break;
+	case VIRTIO_VENDOR_ID: *data = 0x554d4551; break;
+	case VIRTIO_DEVICE_FEATURES: *data = 0; break;	// appears unused
+	case VIRTIO_QUEUE_NUM_MAX: *data = VIO_QUEUE_SIZE; break;
+	default: assert(0);		// unsupported I/O register
+	}
+}
+
+
+uint32_t vio_write(uint32_t addr, uint32_t* data)
+{
+	uint32_t offset = addr - VIRTIO_START;
+	switch (offset) {
+	case VIRTIO_STATUS: {
+		vio_status = *data;	// vs. rvemu; I don't think needed for xv6
+		break;
+	}
+	case VIRTIO_DRIVER_FEATURES: break;	// appears unused
+	case VIRTIO_GUEST_PAGE_SIZE: vio_page_size = *data; break;
+	case VIRTIO_QUEUE_SEL: assert(*data == 0); break;	// only single queue
+	case VIRTIO_QUEUE_NUM: vio_queue_num = *data; break;
+	case VIRTIO_QUEUE_ALIGN: vio_queue_align = *data; break;
+	case VIRTIO_QUEUE_PFN: vio_pfn = *data; break;
+	case VIRTIO_QUEUE_NOTIFY: vio_queue_notify = *data; break;	
+	default: assert(0);		// unsupported I/O register
+	}
+}
+
+// If there has been a notify, generate an interrupt and process the request
+uint32_t vio_interrupt_pending()
+{
+	if (vio_queue_notify != UINT_MAX) {
+		vio_queue_notify = UINT_MAX;
+		return TRUE;
+	}
+	else {
+		return FALSE;
+	}
+}
+
+vio_disk_access()
+{
+	// read 3 descriptors from virtual queue
+
+	// address of virt queue
+	uint32_t virtq = vio_pfn*vio_page_size ;
+
+	// address of avail 
+	uint32_t avail = virtq + 16 * vio_queue_num;	// 16 is descriptor size
+	uint32_t avail_idx;
+	pa_mem_interface(MEM_READ, avail + 2, MEM_HALFWORD, &avail_idx);	// read avail.idx
+
+	uint32_t head_index;
+	pa_mem_interface(MEM_READ , avail+4 + avail_idx*2 , MEM_HALFWORD , &head_index);	
+
+	uint32_t desc0_addr;
+	pa_mem_interface(MEM_READ, virtq + 16 * head_index, MEM_WORD, &desc0_addr);
+
+	uint32_t sector;
+	pa_mem_interface(MEM_READ, desc0_addr + 8, MEM_WORD, &sector);		// LSB
+
+	uint32_t desc0_next;	// index for desc1
+	pa_mem_interface(MEM_READ, virtq + 16 * head_index + 14, MEM_HALFWORD, &desc0_next);
+
+	uint32_t desc1_addr;
+	pa_mem_interface(MEM_READ, virtq + 16 * desc0_next , MEM_HALFWORD, &desc1_addr);
+
+	uint32_t desc1_len;
+	pa_mem_interface(MEM_READ, virtq + 16 * desc0_next + 8, MEM_HALFWORD, &desc1_len);
+
+	uint32_t desc1_flags;
+	pa_mem_interface(MEM_READ, virtq + 16 * desc0_next + 12, MEM_HALFWORD, &desc1_flags);
+
+	uint32_t desc1_next;
+	pa_mem_interface(MEM_READ, virtq + 16 * desc0_next + 14, MEM_HALFWORD, &desc1_next);
+
+	uint32_t data;	// only 1 byte used
+
+	if (desc1_flags & VRING_DESC_F_WRITE) {
+		for (int i = 0; i < desc1_len; i++) {
+			pa_mem_interface(MEM_READ, desc1_addr + i, MEM_BYTE , &data);
+			vio_disk[sector * SECTOR_SIZE + i] = data;
+		}
+	}
+	else {
+		for (int i = 0; i < desc1_len; i++) {
+			data = vio_disk[sector * SECTOR_SIZE + i];
+			pa_mem_interface(MEM_WRITE, desc1_addr + i, MEM_BYTE, &data);
+		}
+	}
+
+	// set desc2's block to zero to mean completion
+	uint32_t desc2_addr;
+	pa_mem_interface(MEM_READ, virtq + 16 * desc1_next, MEM_WORD, &desc2_addr);
+
+	data = 0;
+	pa_mem_interface(MEM_WRITE, desc2_addr, MEM_BYTE, &data);
+
+	// update used
+	// address of used
+	uint32_t used = virtq + 4096;	// per xv6-rv32
+
+	// update used.idx; 
+	pa_mem_interface(MEM_WRITE, used + 4 + 8 * vio_used_idx, MEM_WORD, head_index);
+
+	// update used.idx; vio_used_idx is same as used.idx
+	vio_used_idx = (vio_used_idx + 1) % VIO_QUEUE_SIZE;
+	pa_mem_interface(MEM_WRITE, used + 2, MEM_HALFWORD, &vio_used_idx);
 }
 
 
@@ -205,8 +356,17 @@ uint32_t run_clint()
 	uint64_t elapsed_time;
 	uint32_t new_time;
 
-	// TODO: hook PLIC to external interrupt pending?
+	uint32_t mip, mie, mstatus;
+	// check for external interrupt
 	run_plic();
+
+	mstatus = read_CSR(CSR_MSTATUS);
+	mip = read_CSR(CSR_MIP);
+	mie = read_CSR(CSR_MIE);
+	if (plic_claim!=0 && (mip & CSR_MIP_MEIP) && (mie & CSR_MIE_MEIE) && (mstatus & CSR_MSTATUS_MIE)) {
+		gen_interrupt = INTR_MEXTERNAL;
+		return gen_interrupt;
+	}
 
 	// update timer based on the current time
 	elapsed_time = get_microseconds() - last_time;	
@@ -217,7 +377,7 @@ uint32_t run_clint()
 
 	// compare timer and set interrupt pending info
 	// MIP.MTIP is always updated: clear WFI & set MIP or clear MIP 
-	uint32_t mip = read_CSR(CSR_MIP);
+	mip = read_CSR(CSR_MIP);
 	if ((timer_match_h > 0 || timer_match_l > 0) && ((timer_h > timer_match_h) ||
 		(timer_h == timer_match_h && timer_l >= timer_match_l))) {	// timer_match set and current time>=timer_match
 		wfi = 0;
@@ -226,9 +386,9 @@ uint32_t run_clint()
 		write_CSR(CSR_MIP, mip & ~((uint32_t)CSR_MIP_MTIP));
 	}
 
-	uint32_t mstatus = read_CSR(CSR_MSTATUS);
+	mstatus = read_CSR(CSR_MSTATUS);
 	mip = read_CSR(CSR_MIP);
-	uint32_t mie = read_CSR(CSR_MIE);
+	mie = read_CSR(CSR_MIE);
 	// generate interrupt only if all three conditions are met:
 	// MIP.MTIP , MIE.MTIE , MSTATUS.MIE
 	if ((mip & CSR_MIP_MTIP) && (mie & CSR_MIE_MTIE) && (mstatus & CSR_MSTATUS_MIE)) {
@@ -242,4 +402,6 @@ uint32_t run_clint()
 uint32_t init_clint()
 {
 	last_time = get_microseconds();
+
+	init_vio();
 }

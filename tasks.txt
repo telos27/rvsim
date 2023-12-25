@@ -12,10 +12,8 @@ Tasks:
 	3.1 Verilog CPU running noMMU Linux with verilator
 	3.2 Running noMMU Linux on C simulator: done
 	3.3 add MMU and run xv6 on simulator
-		* devices
-			* virtio
-			* finish PLIC
 		* build xv6 (32-bit)
+		* test
 	3.4 add MMU and supervisor mode to verilog, run MMU Linux
 	3.5 run MMU Linux on C simulator
 4. Implement CPU on FPGA
