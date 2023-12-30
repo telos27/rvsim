@@ -17,9 +17,6 @@ Tasks:
 	3.4 add MMU and supervisor mode to verilog, run MMU Linux
 	3.5 run MMU Linux on C simulator
 4. Implement CPU on FPGA
-	4.0 * learn to use FPGA
-		4.0.1 do a sample project on Quartus and can generate bitstream
-		4.0.2 download to FPGA to make sure it works in hardware
 	4.1 Modify verilog and synthesize on FPGA, run simple program
 	4.2 Run Linux
 5. PCB: ESP32 + ...
