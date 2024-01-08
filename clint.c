@@ -12,6 +12,8 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/time.h>
+#define TRUE 1
+#define FALSE 0
 #endif
 
 
@@ -21,6 +23,8 @@
 
 
 uint32_t vio_interrupt_pending();
+static int IsKBHit();
+static int ReadKBByte();
 
 
 // CLINT I/O register states
@@ -360,7 +364,7 @@ if (is_escape_sequence)
 
 #else
 
-uint64_t GetTimeMicroseconds()
+uint64_t get_microseconds()
 {
 	struct timeval tv;
 	gettimeofday(&tv, 0);
