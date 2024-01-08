@@ -6,8 +6,8 @@ TARGET=rv-emulator
 
 all: $(TARGET)
 
-$(TARGET): rv-emulator.c
-	$(CC) $(CFLAGS) rv-emulator.c -o $(TARGET)
+$(TARGET): rv-emulator.c clint.c mmu.c
+	$(CC) $(CFLAGS) $< -o $@
 
 clean:
 	rm -f $(TARGET)

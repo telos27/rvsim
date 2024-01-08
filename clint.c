@@ -1,9 +1,19 @@
 ﻿// clint.c: CLINT, UART, PLIC, virtio emulation
 #include <stdint.h>
-#include <windows.h>
-#include <conio.h>
 #include <stdio.h>
 #include <assert.h>
+
+#if defined(WINDOWS) || defined(WIN32) || defined(_WIN32)
+#include <windows.h>
+#include <conio.h>
+#else
+#include <sys/ioctl.h>
+#include <termios.h>
+#include <unistd.h>
+#include <signal.h>
+#include <sys/time.h>
+#endif
+
 
 #include "clint.h"
 
@@ -122,7 +132,7 @@ uint32_t vio_read(uint32_t addr, uint32_t* data)
 {
 	uint32_t offset = addr - VIRTIO_START;
 	switch (offset) {
-	case VIRTIO_MAGIC_VALUE: *data = 0x74726976b; break;
+	case VIRTIO_MAGIC_VALUE: *data = 0x74726976; break;
 	case VIRTIO_VERSION: *data = 0x1; break;
 	case VIRTIO_DEVICE_ID: *data = 0x2; break;
 	case VIRTIO_VENDOR_ID: *data = 0x554d4551; break;
@@ -282,6 +292,7 @@ uint32_t io_write(uint32_t addr, uint32_t* data)
 	return 0;
 }
 
+#if defined(WINDOWS) || defined(WIN32) || defined(_WIN32)
 
 // get current microsecond, Windows-specific, need future porting
 uint64_t get_microseconds()
@@ -343,6 +354,39 @@ if (is_escape_sequence)
 	}
 }
 
+#else
+
+uint64_t GetTimeMicroseconds()
+{
+	struct timeval tv;
+	gettimeofday(&tv, 0);
+	return tv.tv_usec + ((uint64_t)(tv.tv_sec)) * 1000000LL;
+}
+
+static int is_eofd;
+
+static int ReadKBByte()
+{
+	if (is_eofd) return 0xffffffff;
+	char rxchar = 0;
+	int rread = read(fileno(stdin), (char*)&rxchar, 1);
+
+	if (rread > 0) // Tricky: getchar can't be used with arrow keys.
+		return rxchar;
+	else
+		return -1;
+}
+
+static int IsKBHit()
+{
+	if (is_eofd) return -1;
+	int byteswaiting;
+	ioctl(0, FIONREAD, &byteswaiting);
+	if (!byteswaiting && write(fileno(stdin), 0, 0) != 0) { is_eofd = 1; return -1; } // Is end-of-file for 
+	return !!byteswaiting;
+}
+
+#endif
 
 static uint64_t last_time = 0;		// last time when we updated the timer, initialized in init_clint()
 
