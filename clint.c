@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <signal.h>
 #include <sys/time.h>
+#include <limits.h>
 #define TRUE 1
 #define FALSE 0
 #endif
