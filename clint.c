@@ -176,6 +176,7 @@ uint32_t vio_interrupt_pending()
 
 vio_disk_access()
 {
+	uint32_t interrupt;
 	// read 3 descriptors from virtual queue
 
 	// address of virt queue
@@ -184,64 +185,64 @@ vio_disk_access()
 	// address of avail 
 	uint32_t avail = virtq + 16 * vio_queue_num;	// 16 is descriptor size
 	uint32_t avail_idx;
-	pa_mem_interface(MEM_READ, avail + 2, MEM_HALFWORD, &avail_idx);	// read avail.idx
+	pa_mem_interface(MEM_READ, avail + 2, MEM_HALFWORD, &avail_idx, &interrupt);	// read avail.idx
 
 	uint32_t head_index;
-	pa_mem_interface(MEM_READ , avail+4 + avail_idx*2 , MEM_HALFWORD , &head_index);	
+	pa_mem_interface(MEM_READ , avail+4 + avail_idx*2 , MEM_HALFWORD , &head_index, &interrupt);
 
 	uint32_t desc0_addr;
-	pa_mem_interface(MEM_READ, virtq + 16 * head_index, MEM_WORD, &desc0_addr);
+	pa_mem_interface(MEM_READ, virtq + 16 * head_index, MEM_WORD, &desc0_addr, &interrupt);
 
 	uint32_t sector;
-	pa_mem_interface(MEM_READ, desc0_addr + 8, MEM_WORD, &sector);		// LSB
+	pa_mem_interface(MEM_READ, desc0_addr + 8, MEM_WORD, &sector, &interrupt);		// LSB
 
 	uint32_t desc0_next;	// index for desc1
-	pa_mem_interface(MEM_READ, virtq + 16 * head_index + 14, MEM_HALFWORD, &desc0_next);
+	pa_mem_interface(MEM_READ, virtq + 16 * head_index + 14, MEM_HALFWORD, &desc0_next, &interrupt);
 
 	uint32_t desc1_addr;
-	pa_mem_interface(MEM_READ, virtq + 16 * desc0_next , MEM_HALFWORD, &desc1_addr);
+	pa_mem_interface(MEM_READ, virtq + 16 * desc0_next , MEM_HALFWORD, &desc1_addr, &interrupt);
 
 	uint32_t desc1_len;
-	pa_mem_interface(MEM_READ, virtq + 16 * desc0_next + 8, MEM_HALFWORD, &desc1_len);
+	pa_mem_interface(MEM_READ, virtq + 16 * desc0_next + 8, MEM_HALFWORD, &desc1_len, &interrupt);
 
 	uint32_t desc1_flags;
-	pa_mem_interface(MEM_READ, virtq + 16 * desc0_next + 12, MEM_HALFWORD, &desc1_flags);
+	pa_mem_interface(MEM_READ, virtq + 16 * desc0_next + 12, MEM_HALFWORD, &desc1_flags, &interrupt);
 
 	uint32_t desc1_next;
-	pa_mem_interface(MEM_READ, virtq + 16 * desc0_next + 14, MEM_HALFWORD, &desc1_next);
+	pa_mem_interface(MEM_READ, virtq + 16 * desc0_next + 14, MEM_HALFWORD, &desc1_next, &interrupt);
 
 	uint32_t data;	// only 1 byte used
 
 	if (desc1_flags & VRING_DESC_F_WRITE) {
 		for (int i = 0; i < desc1_len; i++) {
-			pa_mem_interface(MEM_READ, desc1_addr + i, MEM_BYTE , &data);
+			pa_mem_interface(MEM_READ, desc1_addr + i, MEM_BYTE , &data, &interrupt);
 			vio_disk[sector * SECTOR_SIZE + i] = data;
 		}
 	}
 	else {
 		for (int i = 0; i < desc1_len; i++) {
 			data = vio_disk[sector * SECTOR_SIZE + i];
-			pa_mem_interface(MEM_WRITE, desc1_addr + i, MEM_BYTE, &data);
+			pa_mem_interface(MEM_WRITE, desc1_addr + i, MEM_BYTE, &data, &interrupt);
 		}
 	}
 
 	// set desc2's block to zero to mean completion
 	uint32_t desc2_addr;
-	pa_mem_interface(MEM_READ, virtq + 16 * desc1_next, MEM_WORD, &desc2_addr);
+	pa_mem_interface(MEM_READ, virtq + 16 * desc1_next, MEM_WORD, &desc2_addr, &interrupt);
 
 	data = 0;
-	pa_mem_interface(MEM_WRITE, desc2_addr, MEM_BYTE, &data);
+	pa_mem_interface(MEM_WRITE, desc2_addr, MEM_BYTE, &data, &interrupt);
 
 	// update used
 	// address of used
 	uint32_t used = virtq + 4096;	// per xv6-rv32
 
 	// update used.idx; 
-	pa_mem_interface(MEM_WRITE, used + 4 + 8 * vio_used_idx, MEM_WORD, head_index);
+	pa_mem_interface(MEM_WRITE, used + 4 + 8 * vio_used_idx, MEM_WORD, head_index, &interrupt);
 
 	// update used.idx; vio_used_idx is same as used.idx
 	vio_used_idx = (vio_used_idx + 1) % VIO_QUEUE_SIZE;
-	pa_mem_interface(MEM_WRITE, used + 2, MEM_HALFWORD, &vio_used_idx);
+	pa_mem_interface(MEM_WRITE, used + 2, MEM_HALFWORD, &vio_used_idx, &interrupt);
 }
 
 
