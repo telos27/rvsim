@@ -20,6 +20,9 @@
 #include "mmu.h"
 
 
+uint32_t vio_interrupt_pending();
+
+
 // CLINT I/O register states
 static uint32_t timer_l = 0;	// part of CLINT, mtime in SiFive doc
 static uint32_t timer_h = 0;
