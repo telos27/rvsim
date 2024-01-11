@@ -14,35 +14,36 @@ RVSim 是一个从零开始搭建的 RISCV 模拟器，完全用 C 语言编写�
 
 ## 如何使用
 
-目前只能在Windows上用Visual Studio编译，Linux 和 MacOS的支持很快会来。
-
 1. 克隆仓库：
 
     Visual Studio：克隆仓库 https://github.com/telos27/rvsim
     
-    命令行：git clone https://github.com/telos27/rvsim
+    Linux/MacOS：git clone https://github.com/telos27/rvsim
 
 2. 编译项目：
 
-    Visual Studio：生成解决方案
+   Visual Studio：生成解决方案
+
+   Linux/MacOS: make
 
 4. 运行模拟器：
 
     Visual Studio: 加上命令行参数：tests\localbuild.bin tests\64mb.dtb
                     然后调试
    
-    命令行：.\rvsim ..\..\tests\localbuild.bin ..\..\tests\64mb.dtb    
+    Linux/MacOS：make sim
+       
 
 ## 文件说明
 
 | 文件类型     | 文件名            |
 | ------------ | ----------------- |
 | 主文件       | rv-emulator.c，mmu.c, clint.c |
-| Linux 内核   | tests\localbuild.bin |
-| DTB 文件     | tests\64mb.dtb    |
+| Linux 内核   | tests/localbuild.bin |
+| DTB 文件     | tests/64mb.dtb    |
 | 汇编文件     | t1.asm            |
 | 二进制编码   | asm.o             |
-| ppt文件      | RISCV模拟器.pptx |
+| ppt文件      | doc/RISCV模拟器.pptx |
 
 
 
