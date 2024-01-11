@@ -27,6 +27,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="rv-simulator.pptx" />
+    <None Include="tests\localbuild.bin">
+      <Filter>Resource Files</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Text Include="tasks.txt" />

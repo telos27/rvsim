@@ -126,6 +126,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="rv-simulator.pptx" />
+    <None Include="tests\localbuild.bin" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="tasks.txt" />
