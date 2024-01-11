@@ -801,7 +801,8 @@ int load_dtb(char* file_name)
 
 
 // debugging syscall on I/O write: use x5: 1 halt 10 print all registers 11 print string (ptr in x6) 12 print integer (value in x6) 
-void debug_syscall() {
+void debug_syscall()
+{
 
     int call_no = read_reg(5);
 

@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <assert.h>
+#include <stdlib.h>
 
 #if defined(WINDOWS) || defined(WIN32) || defined(_WIN32)
 #include <windows.h>
@@ -24,6 +25,7 @@
 
 
 uint32_t vio_interrupt_pending();
+int vio_disk_access();
 static int IsKBHit();
 static int ReadKBByte();
 
@@ -182,7 +184,7 @@ uint32_t vio_interrupt_pending()
 	}
 }
 
-vio_disk_access()
+int vio_disk_access()
 {
 	uint32_t interrupt;
 	// read 3 descriptors from virtual queue
@@ -251,6 +253,8 @@ vio_disk_access()
 	// update used.idx; vio_used_idx is same as used.idx
 	vio_used_idx = (vio_used_idx + 1) % VIO_QUEUE_SIZE;
 	pa_mem_interface(MEM_WRITE, used + 2, MEM_HALFWORD, &vio_used_idx, &interrupt);
+
+	return 0;
 }
 
 
