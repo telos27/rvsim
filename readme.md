@@ -28,17 +28,17 @@ RVSim 是一个从零开始搭建的 RISCV 模拟器，完全用 C 语言编写�
 
 4. 运行模拟器：
 
-    Visual Studio: 加上命令行参数：tests\linux32-nommu.bin tests\64mb.dtb
+    Visual Studio: 加上命令行参数：tests\localbuild.bin tests\64mb.dtb
                     然后调试
    
-    命令行：.\rvsim ..\..\tests\linux32-nommu.bin ..\..\tests\64mb.dtb    
+    命令行：.\rvsim ..\..\tests\localbuild.bin ..\..\tests\64mb.dtb    
 
 ## 文件说明
 
 | 文件类型     | 文件名            |
 | ------------ | ----------------- |
 | 主文件       | rv-emulator.c，mmu.c, clint.c |
-| Linux 内核   | tests\linux32-nommu.bin |
+| Linux 内核   | tests\localbuild.bin |
 | DTB 文件     | tests\64mb.dtb    |
 | 汇编文件     | t1.asm            |
 | 二进制编码   | asm.o             |
