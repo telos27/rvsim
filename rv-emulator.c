@@ -254,7 +254,7 @@ int rw_memory(uint32_t mem_mode, uint32_t addr, int sub3, unsigned int* data)
         if (interrupt!=0xffffffff) return -1;
     }
     if (mem_mode==MEM_WRITE) {
-        if (addr >= MEMIO_START && addr < MEMIO_END) {
+        if (addr >= MEMIO_START && addr < MEMIO_END || (addr>=IO_CLINT_START && addr < IO_CLINT_END)) {
             return io_write(addr, data);
         }
         else {
@@ -263,7 +263,7 @@ int rw_memory(uint32_t mem_mode, uint32_t addr, int sub3, unsigned int* data)
     } else {    // both instruction and data read
         uint32_t read_data;
         int result;
-        if (addr >= MEMIO_START && addr < MEMIO_END) {
+        if (addr >= MEMIO_START && addr < MEMIO_END || (addr >= IO_CLINT_START && addr < IO_CLINT_END)) {
             result = io_read(addr, &read_data) ;  // TODO: what do we do about non-word-sized I/O？
         }
         else {
@@ -827,7 +827,7 @@ void debug_syscall()
 int main(int argc, char** argv)
 {
     load_code((argc<=1)?DEFAULT_FILE:argv[1]);
-    if (argc >= 2) load_dtb(argv[2]) ;
+    if (argc >= 3) load_dtb(argv[2]) ;
 
     // initialize CPU state
     pc = INITIAL_PC;
