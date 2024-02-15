@@ -1,9 +1,9 @@
 Detailed RISC-V Interrupt Handling
 
-* M mode only
+* M and U modes only
 
 interrupt types:
-	* M: external, timer, software
+	* M: timer
 	* exceptions: caused by instruction execution
 
 States:
@@ -15,15 +15,15 @@ States:
 		* set when entering and exiting interrupt handlers
 		* can set mie to enable or disable interrupts
 	* mip: msip , meip, mtip
-		* set by CPU upon receipt of signal from CLINT or PLIC?
+		* set by CPU upon receipt of signal from CLINT or PLIC
 		* read by CPU when checking to see if there is interrupt to be handled
 		* can be cleared by source
 	* mie: msie , meie , mtie
 		* written by OS to enable/disable individual interrupts, overall control is at mstatus.mie
-		* used by CPU to decide whether to handle the corresponding type of interrupt?
+		* used by CPU to decide whether to handle the corresponding type of interrupt
 	* mcause
 		* set by CPU when handlingan interrupt
-		* used in interrupt hanlder?
+		* used in interrupt hanlder
 	* mepc
 		* set by CPU when handling an interrupt
 		* used by mret to return to the next instruction
@@ -43,19 +43,19 @@ States:
 	* msip
 		* software write to set/clear
 		* CLINT uses it to generate software interrupt signal to CPU, CPU sets msip accordingly
-* internal state?
-	* mode
-		* changed when handling and returning from interrupt (actually currently we only support M mode, but we still go through the motions)
-
+* internal state
+	* cpu mode
+		* changed when handling and returning from interrupt
 
 CPU per-cycle processing:
 * caused by instruction: ebreak/ecall, illegal instructionse etc.
 * timer
-* software interrupt
-* external interrupt
+
+before executing each instruction, check to see if there is a timer interrupt
+	* mip.mtip && mie.mtie && mstatus.mie && not M mode
 
 after executing each instruction, check to see if there is an interrupt to be handled (no software/external interrupt yet)
-	if (mtip&&mtie&&mie || exception)
+	if (timer interrupt || exception)
 		mstatus.mpp = mode ; mstatus.mpie = mstatus.mie ; mstatus.mie = 0 ;
 		mepc = PC
 		set mcause, mtval
@@ -64,5 +64,5 @@ after executing each instruction, check to see if there is an interrupt to be ha
 
 mret instruction:
 * set mode to mstatus.mpp
-* mstatus: mie = mpie ; mpie=1 (spec) ; mpp = m (should be u when we support u mode)
+* mstatus: mie = mpie ; mpie=1 (spec) ; mpp = mode (should be u )
 * jump to mepc 
