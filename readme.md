@@ -1,3 +1,6 @@
+Note: please use the new version that supports both 32 and 64-bit mode: https://github.com/telos27/rv64sim
+
+
 # RVSim: RISCV 模拟器
 
 ## 简介
